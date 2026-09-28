@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "Playmaker FC",
+    "slug": "playmaker-fc",
+    "version": "1.0.0",
+    "scheme": "playmakerfc",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0B1220"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.playmakerfc.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0B1220"
+      },
+      "package": "com.playmakerfc.app"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-sharing"
+    ],
+    "extra": {
+      "apiBaseUrl": "http://localhost:5000/api"
+    }
+  }
+}

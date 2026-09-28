@@ -1,0 +1,9 @@
+backend/venv/
+backend/.env
+backend/uploads/
+mobile/node_modules/
+frontend/node_modules/
+mobile/.expo/
+frontend/.expo/
+__pycache__/
+*.pyc
