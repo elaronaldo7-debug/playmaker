@@ -7,3 +7,5 @@ mobile/.expo/
 frontend/.expo/
 __pycache__/
 *.pyc
+backend/import_render.py
+backend/local_db_backup.json

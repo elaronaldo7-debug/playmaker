@@ -1,6 +1,9 @@
 import os
 import uuid
 
+import cloudinary
+import cloudinary.uploader
+
 from flask import Blueprint, jsonify, request
 from werkzeug.utils import secure_filename
 
@@ -23,6 +26,18 @@ from utils.permissions import (
 players_bp = Blueprint(
     "players",
     __name__,
+)
+
+
+# =========================================================
+# CLOUDINARY CONFIG
+# =========================================================
+
+cloudinary.config(
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.getenv("CLOUDINARY_API_KEY"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET"),
+    secure=True,
 )
 
 
@@ -742,37 +757,123 @@ def upload_player_photo(player_id):
         ), 400
 
     # =====================================================
-    # GET EXTENSION
-    # =====================================================
-
-    extension = os.path.splitext(
-        original_filename
-    )[1].lower()
-
-    # =====================================================
-    # GENERATE UNIQUE FILE NAME
-    # =====================================================
-
-    filename = (
-        f"player_{player.id}_"
-        f"{uuid.uuid4().hex}"
-        f"{extension}"
-    )
-
-    file_path = os.path.join(
-        UPLOAD_FOLDER,
-        filename
-    )
-
-    # =====================================================
-    # DELETE OLD PHOTO
+    # KEEP OLD PHOTO VALUE
     # =====================================================
 
     old_photo = (
         player.profile_photo
     )
 
-    if old_photo:
+    # =====================================================
+    # UPLOAD TO CLOUDINARY
+    # =====================================================
+
+    try:
+
+        upload_result = (
+            cloudinary.uploader.upload(
+                file.stream,
+                folder="playmaker_fc/players",
+                public_id=(
+                    f"player_{player.id}_"
+                    f"{uuid.uuid4().hex}"
+                ),
+                resource_type="image",
+                overwrite=False,
+            )
+        )
+
+    except Exception as e:
+
+        return jsonify(
+            {
+                "message":
+                    "Could not upload profile photo",
+                "error":
+                    str(e),
+            }
+        ), 500
+
+    # =====================================================
+    # GET CLOUDINARY URL
+    # =====================================================
+
+    cloudinary_url = (
+        upload_result.get(
+            "secure_url"
+        )
+    )
+
+    if not cloudinary_url:
+
+        return jsonify(
+            {
+                "message":
+                    (
+                        "Cloudinary did not "
+                        "return an image URL"
+                    )
+            }
+        ), 500
+
+    # =====================================================
+    # SAVE URL TO DATABASE
+    # =====================================================
+
+    player.profile_photo = (
+        cloudinary_url
+    )
+
+    try:
+
+        db.session.commit()
+
+    except Exception as e:
+
+        db.session.rollback()
+
+        # Remove newly uploaded Cloudinary image
+        # if database update fails.
+        try:
+
+            public_id = (
+                upload_result.get(
+                    "public_id"
+                )
+            )
+
+            if public_id:
+
+                cloudinary.uploader.destroy(
+                    public_id,
+                    resource_type="image"
+                )
+
+        except Exception:
+
+            pass
+
+        return jsonify(
+            {
+                "message":
+                    "Could not update player photo",
+                "error":
+                    str(e),
+            }
+        ), 500
+
+    # =====================================================
+    # DELETE OLD LOCAL PHOTO
+    # =====================================================
+    #
+    # This only removes old local /uploads files.
+    # Existing Cloudinary URLs are not deleted because the
+    # database currently stores the URL, not the public_id.
+
+    if old_photo and not (
+        old_photo.startswith("http://")
+        or old_photo.startswith("https://")
+    ):
 
         old_filename = os.path.basename(
             old_photo
@@ -795,70 +896,7 @@ def upload_player_photo(player_id):
 
         except OSError:
 
-            # Old file deletion should
-            # not stop new upload.
             pass
-
-    # =====================================================
-    # SAVE NEW FILE
-    # =====================================================
-
-    try:
-
-        file.save(
-            file_path
-        )
-
-    except Exception as e:
-
-        return jsonify(
-            {
-                "message":
-                    "Could not save profile photo",
-                "error":
-                    str(e),
-            }
-        ), 500
-
-    # =====================================================
-    # SAVE PATH TO DATABASE
-    # =====================================================
-
-    player.profile_photo = (
-        f"/uploads/players/{filename}"
-    )
-
-    try:
-
-        db.session.commit()
-
-    except Exception as e:
-
-        db.session.rollback()
-
-        # Remove newly uploaded file
-        try:
-
-            if os.path.isfile(
-                file_path
-            ):
-
-                os.remove(
-                    file_path
-                )
-
-        except OSError:
-
-            pass
-
-        return jsonify(
-            {
-                "message":
-                    "Could not update player photo",
-                "error":
-                    str(e),
-            }
-        ), 500
 
     # =====================================================
     # RESPONSE
