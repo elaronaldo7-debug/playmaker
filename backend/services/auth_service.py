@@ -11,11 +11,7 @@ def authenticate(username: str, password: str):
 
     user = User.query.filter_by(username=username).first()
 
-    # TEMPORARY DEBUG — does NOT print the password
-    print("=== AUTH DEBUG ===")
-    print("USERNAME:", username)
-    print("USER EXISTS:", user is not None)
-    print("USER ACTIVE:", user.is_active if user else None)
+   
 
     password_match = user.check_password(password) if user else False
     print("PASSWORD MATCH:", password_match)
