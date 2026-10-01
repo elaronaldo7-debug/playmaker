@@ -3,147 +3,116 @@ from decimal import Decimal
 from extensions import db
 from models.fee import Fee
 from models.fee_payment import FeePayment
+from models.player import Player
 
 
-def get_or_create_fee(
-    player_id: int,
-    month: str,
-    fee_amount: Decimal
-) -> Fee:
+def _effective_fee_amount(player, month):
     """
-    Fetch the monthly fee for a player.
+    Determine the amount to use when a monthly Fee row does not exist.
 
-    If the fee does not exist:
-        Create it.
+    Priority:
+    1. Player.monthly_fee, if the deployed model has it and it is set.
+    2. The latest existing Fee for this player from a month before `month`.
 
-    If the fee already exists:
-        Update the fee amount.
-
-    IMPORTANT:
-        fee_amount = 0 means FREE.
-        Zero is a valid fee amount.
+    This means changing a player's current fee does not rewrite old months,
+    while future months inherit the latest configured amount automatically.
     """
+    current_amount = getattr(player, "monthly_fee", None)
 
+    if current_amount is not None:
+        return Decimal(str(current_amount)).quantize(Decimal("0.01"))
+
+    previous_fee = (
+        Fee.query
+        .filter(
+            Fee.player_id == player.id,
+            Fee.month < month,
+        )
+        .order_by(Fee.month.desc())
+        .first()
+    )
+
+    if previous_fee is not None:
+        return Decimal(str(previous_fee.fee_amount)).quantize(Decimal("0.01"))
+
+    return None
+
+
+def get_or_create_fee(player_id: int, month: str, fee_amount=None) -> Fee:
+    """
+    Get or create the fee row for one player/month.
+
+    If `fee_amount` is supplied, it is an explicit admin set/edit for this
+    exact month. Existing historical rows are not touched by month navigation.
+
+    If `fee_amount` is None, the function automatically carries forward the
+    player's current/latest previous monthly fee.
+    """
     fee = Fee.query.filter_by(
         player_id=player_id,
-        month=month
+        month=month,
     ).first()
 
-    # ========================================================
-    # CREATE NEW FEE
-    # ========================================================
+    if fee is not None:
+        # Explicit fee amount means the admin intentionally edited this
+        # particular month. Do not change it during normal month navigation.
+        if fee_amount is not None:
+            amount = Decimal(str(fee_amount)).quantize(Decimal("0.01"))
+            fee.fee_amount = amount
 
-    if fee is None:
-
-        fee_amount = Decimal(fee_amount).quantize(
-            Decimal("0.01")
-        )
-
-        fee = Fee(
-            player_id=player_id,
-            month=month,
-            fee_amount=fee_amount,
-            paid_amount=Decimal("0.00"),
-            balance=fee_amount,
-            status=(
-                Fee.STATUS_PAID
-                if fee_amount == Decimal("0.00")
-                else Fee.STATUS_PENDING
-            ),
-        )
-
-        db.session.add(fee)
-        db.session.flush()
+            if amount == Decimal("0.00"):
+                fee.paid_amount = Decimal("0.00")
+                fee.balance = Decimal("0.00")
+                fee.status = Fee.STATUS_PAID
+            else:
+                fee.recalculate()
 
         return fee
 
-    # ========================================================
-    # UPDATE EXISTING FEE
-    # ========================================================
+    player = Player.query.get(player_id)
 
-    fee_amount = Decimal(fee_amount).quantize(
-        Decimal("0.01")
+    if player is None:
+        raise ValueError("Player not found")
+
+    if fee_amount is None:
+        amount = _effective_fee_amount(player, month)
+
+        if amount is None:
+            raise ValueError(
+                "Monthly fee is not configured for this player and no previous fee exists"
+            )
+    else:
+        amount = Decimal(str(fee_amount)).quantize(Decimal("0.01"))
+
+    if amount < Decimal("0.00"):
+        raise ValueError("Monthly fee cannot be negative")
+
+    fee = Fee(
+        player_id=player_id,
+        month=month,
+        fee_amount=amount,
+        paid_amount=Decimal("0.00"),
+        balance=amount,
+        status=(
+            Fee.STATUS_PAID
+            if amount == Decimal("0.00")
+            else Fee.STATUS_PENDING
+        ),
     )
 
-    fee.fee_amount = fee_amount
-
-    # ========================================================
-    # FREE PLAYER
-    # ========================================================
-
-    if fee_amount == Decimal("0.00"):
-
-        fee.paid_amount = Decimal("0.00")
-        fee.balance = Decimal("0.00")
-        fee.status = Fee.STATUS_PAID
-
-    # ========================================================
-    # NORMAL FEE
-    # ========================================================
-
-    else:
-
-        fee.recalculate()
-
+    db.session.add(fee)
     db.session.flush()
 
     return fee
 
 
-# ============================================================
-# RECORD PAYMENT
-# ============================================================
-
 def record_payment(
     fee: Fee,
     amount: Decimal,
     payment_method: str,
-    recorded_by: int
+    recorded_by: int,
 ) -> FeePayment:
-    """
-    Records a new payment against a fee.
-
-    Supports:
-        Full payment
-        Partial payment
-        Multiple payments
-    """
-
-    # --------------------------------------------------------
-    # FREE FEE
-    # --------------------------------------------------------
-
-    if fee.fee_amount == Decimal("0.00"):
-        raise ValueError(
-            "Cannot collect payment for a FREE fee"
-        )
-
-    # --------------------------------------------------------
-    # Validate amount
-    # --------------------------------------------------------
-
-    amount = Decimal(amount).quantize(
-        Decimal("0.01")
-    )
-
-    if amount <= Decimal("0.00"):
-        raise ValueError(
-            "Payment amount must be greater than zero"
-        )
-
-    # --------------------------------------------------------
-    # Do not allow payment greater than balance
-    # --------------------------------------------------------
-
-    if amount > fee.balance:
-        raise ValueError(
-            "Payment amount cannot be greater than balance"
-        )
-
-    # --------------------------------------------------------
-    # Create payment
-    # --------------------------------------------------------
-
+    """Record a payment and recalculate the parent monthly fee."""
     payment = FeePayment(
         fee_id=fee.id,
         amount=amount,
@@ -154,134 +123,58 @@ def record_payment(
     db.session.add(payment)
     db.session.flush()
 
-    # --------------------------------------------------------
-    # Recalculate fee
-    # --------------------------------------------------------
-
     fee.recalculate()
-
     db.session.commit()
 
     return payment
 
 
-# ============================================================
-# EDIT PAYMENT
-# ============================================================
-
 def edit_payment(
     payment: FeePayment,
     amount: Decimal = None,
-    payment_method: str = None
+    payment_method: str = None,
 ) -> FeePayment:
-    """
-    Edits an existing payment and recalculates
-    the parent fee.
-    """
-
-    fee = payment.fee
-
-    # --------------------------------------------------------
-    # Update amount
-    # --------------------------------------------------------
-
+    """Edit an existing payment and recalculate the parent fee."""
     if amount is not None:
-
-        amount = Decimal(amount).quantize(
-            Decimal("0.01")
-        )
-
-        if amount <= Decimal("0.00"):
-            raise ValueError(
-                "Payment amount must be greater than zero"
-            )
-
-        # Calculate balance excluding current payment
-        other_paid = sum(
-            (
-                p.amount
-                for p in fee.payments
-                if p.id != payment.id
-            ),
-            Decimal("0.00")
-        )
-
-        if other_paid + amount > fee.fee_amount:
-            raise ValueError(
-                "Payment amount cannot be greater than balance"
-            )
-
         payment.amount = amount
-
-    # --------------------------------------------------------
-    # Update payment method
-    # --------------------------------------------------------
 
     if payment_method is not None:
         payment.payment_method = payment_method
 
     db.session.flush()
 
-    # --------------------------------------------------------
-    # Recalculate
-    # --------------------------------------------------------
-
-    fee.recalculate()
-
+    payment.fee.recalculate()
     db.session.commit()
 
     return payment
 
 
-# ============================================================
-# DELETE PAYMENT
-# ============================================================
-
-def delete_payment(
-    payment: FeePayment
-) -> None:
-    """
-    Deletes a payment and recalculates
-    the parent fee.
-    """
-
+def delete_payment(payment: FeePayment) -> None:
+    """Delete a payment and recalculate the parent fee."""
     fee = payment.fee
 
     db.session.delete(payment)
     db.session.flush()
 
     fee.recalculate()
-
     db.session.commit()
 
 
-# ============================================================
-# MONTHLY COLLECTION TOTAL
-# ============================================================
-
 def monthly_collection_total(
     month: str,
-    category_id: int = None
+    category_id: int = None,
 ) -> Decimal:
-    """
-    Returns the total payments collected
-    for a particular month.
-
-    Optionally filters by category.
-    """
-
-    from models.player import Player
-
+    """Return total payments for a month, optionally limited to a category."""
     query = (
         db.session.query(
             db.func.coalesce(
                 db.func.sum(FeePayment.amount),
-                0
+                0,
             )
         )
         .join(
             Fee,
-            FeePayment.fee_id == Fee.id
+            FeePayment.fee_id == Fee.id,
         )
         .filter(
             Fee.month == month
@@ -289,16 +182,15 @@ def monthly_collection_total(
     )
 
     if category_id is not None:
-
         query = (
             query
             .join(
                 Player,
-                Fee.player_id == Player.id
+                Fee.player_id == Player.id,
             )
             .filter(
                 Player.category_id == category_id
             )
         )
 
-    return query.scalar() or Decimal("0.00")
+    return query.scalar() or Decimal("0")

@@ -1,5 +1,6 @@
 import os
 import uuid
+from decimal import Decimal, InvalidOperation
 
 import cloudinary
 import cloudinary.uploader
@@ -87,6 +88,63 @@ def allowed_photo(filename):
     )[1].lower()
 
     return extension in ALLOWED_PHOTO_EXTENSIONS
+
+
+# =========================================================
+# HELPER - MONTHLY FEE
+# =========================================================
+#
+# None  = fee not configured
+# 0     = FREE
+# 500   = ₹500/month
+# 1000  = ₹1000/month
+#
+# =========================================================
+
+def parse_monthly_fee(value):
+    """
+    Convert monthly fee input into Decimal.
+
+    Returns:
+        Decimal value
+        None when no fee was supplied
+
+    Raises:
+        ValueError for invalid/negative fee
+    """
+
+    if value is None:
+        return None
+
+    # Empty string means no value supplied
+    if isinstance(value, str):
+        value = value.strip()
+
+        if value == "":
+            return None
+
+    try:
+        amount = Decimal(
+            str(value)
+        ).quantize(
+            Decimal("0.01")
+        )
+
+    except (
+        InvalidOperation,
+        TypeError,
+        ValueError,
+    ):
+        raise ValueError(
+            "Invalid monthly_fee"
+        )
+
+    if amount < Decimal("0.00"):
+        raise ValueError(
+            "Monthly fee cannot be negative"
+        )
+
+    return amount
 
 
 # =========================================================
@@ -310,7 +368,28 @@ def update_player(player_id):
         ), 400
 
     # =====================================================
-    # UPDATE
+    # MONTHLY FEE
+    # =====================================================
+
+    try:
+
+        monthly_fee = parse_monthly_fee(
+            data.get(
+                "monthly_fee",
+                player.monthly_fee
+            )
+        )
+
+    except ValueError as e:
+
+        return jsonify(
+            {
+                "message": str(e)
+            }
+        ), 400
+
+    # =====================================================
+    # UPDATE PLAYER
     # =====================================================
 
     player.player_name = player_name
@@ -345,7 +424,46 @@ def update_player(player_id):
 
     player.status = status
 
-    db.session.commit()
+    # =====================================================
+    # SAVE CURRENT MONTHLY FEE
+    # =====================================================
+    #
+    # This changes ONLY the player's current monthly fee.
+    #
+    # Existing Fee records are NOT modified here.
+    #
+    # Example:
+    #
+    # Existing:
+    # August  = ₹1000
+    # September = ₹1000
+    #
+    # Change monthly_fee to ₹1200
+    #
+    # Future newly-created fees = ₹1200
+    #
+    # Existing August/September records remain ₹1000.
+    #
+    # =====================================================
+
+    player.monthly_fee = monthly_fee
+
+    try:
+
+        db.session.commit()
+
+    except Exception as e:
+
+        db.session.rollback()
+
+        return jsonify(
+            {
+                "message":
+                    "Could not update player",
+                "error":
+                    str(e),
+            }
+        ), 500
 
     return jsonify(
         player.to_dict()
@@ -472,6 +590,26 @@ def create_player():
         ), 409
 
     # =====================================================
+    # MONTHLY FEE
+    # =====================================================
+
+    try:
+
+        monthly_fee = parse_monthly_fee(
+            data.get(
+                "monthly_fee"
+            )
+        )
+
+    except ValueError as e:
+
+        return jsonify(
+            {
+                "message": str(e)
+            }
+        ), 400
+
+    # =====================================================
     # CREATE PLAYER
     # =====================================================
 
@@ -479,41 +617,71 @@ def create_player():
         player_id=player_id,
         player_name=player_name,
         category_id=category_id,
+
         profile_photo=data.get(
             "profile_photo"
         ),
+
         date_of_birth=data.get(
             "date_of_birth"
         ),
+
         school=data.get(
             "school"
         ),
+
         standard=data.get(
             "standard"
         ),
+
         phone_1=data.get(
             "phone_1"
         ),
+
         phone_2=data.get(
             "phone_2"
         ),
+
         pickup_person=data.get(
             "pickup_person"
         ),
+
         health_condition=data.get(
             "health_condition"
         ),
+
         status=data.get(
             "status",
             Player.STATUS_ACTIVE
         ),
+
+        # =================================================
+        # CURRENT MONTHLY FEE
+        # =================================================
+
+        monthly_fee=monthly_fee,
     )
 
     db.session.add(
         player
     )
 
-    db.session.commit()
+    try:
+
+        db.session.commit()
+
+    except Exception as e:
+
+        db.session.rollback()
+
+        return jsonify(
+            {
+                "message":
+                    "Could not create player",
+                "error":
+                    str(e),
+            }
+        ), 500
 
     return jsonify(
         player.to_dict()
@@ -639,19 +807,41 @@ def quick_add_player():
     # =====================================================
     # CREATE
     # =====================================================
+    #
+    # Quick Add does not set a fee.
+    #
+    # monthly_fee remains None until Admin configures it.
+    #
+    # =====================================================
 
     player = Player(
         player_id=player_id,
         player_name=player_name,
         category_id=category_id,
         status=Player.STATUS_ACTIVE,
+        monthly_fee=None,
     )
 
     db.session.add(
         player
     )
 
-    db.session.commit()
+    try:
+
+        db.session.commit()
+
+    except Exception as e:
+
+        db.session.rollback()
+
+        return jsonify(
+            {
+                "message":
+                    "Could not create player",
+                "error":
+                    str(e),
+            }
+        ), 500
 
     return jsonify(
         player.to_dict()
@@ -980,7 +1170,22 @@ def update_player_status(player_id):
 
     player.status = status
 
-    db.session.commit()
+    try:
+
+        db.session.commit()
+
+    except Exception as e:
+
+        db.session.rollback()
+
+        return jsonify(
+            {
+                "message":
+                    "Could not update player status",
+                "error":
+                    str(e),
+            }
+        ), 500
 
     if status == Player.STATUS_ACTIVE:
 
@@ -1048,7 +1253,22 @@ def delete_player_permanently(
         player
     )
 
-    db.session.commit()
+    try:
+
+        db.session.commit()
+
+    except Exception as e:
+
+        db.session.rollback()
+
+        return jsonify(
+            {
+                "message":
+                    "Could not delete player",
+                "error":
+                    str(e),
+            }
+        ), 500
 
     return jsonify(
         {

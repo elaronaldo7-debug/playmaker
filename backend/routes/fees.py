@@ -70,10 +70,8 @@ def list_fees():
     # --------------------------------------------------------
 
     if category_id:
-
         try:
             category_id = int(category_id)
-
         except ValueError:
             return jsonify({
                 "error": "category_id must be an integer"
@@ -109,7 +107,6 @@ def list_fees():
         user = get_current_user()
 
         if user.role != User.ROLE_ADMIN:
-
             return jsonify({
                 "error": (
                     "category_id is required "
@@ -124,7 +121,6 @@ def list_fees():
     # --------------------------------------------------------
 
     if month:
-
         query = query.filter(
             Fee.month == month
         )
@@ -134,10 +130,64 @@ def list_fees():
     # --------------------------------------------------------
 
     if status:
-
         query = query.filter(
             Fee.status == status.upper()
         )
+
+    # --------------------------------------------------------
+    # AUTO-CREATE MISSING MONTHLY FEES
+    # --------------------------------------------------------
+    #
+    # When a category/month is opened:
+    #
+    # 1. Existing Fee row -> leave it unchanged.
+    # 2. Player.monthly_fee exists -> use it.
+    # 3. Player.monthly_fee is NULL -> fee_service checks
+    #    the latest previous Fee and carries it forward.
+    # 4. If no current/previous fee exists -> leave player
+    #    without a Fee row so UI can show SET FEE.
+    #
+    # Historical Fee records are never changed here.
+    # --------------------------------------------------------
+
+    if category_id and month:
+
+        players = (
+            Player.query
+            .filter(
+                Player.category_id == category_id,
+                Player.status == Player.STATUS_ACTIVE,
+            )
+            .all()
+        )
+
+        created_count = 0
+
+        for player in players:
+
+            existing_fee = Fee.query.filter_by(
+                player_id=player.id,
+                month=month,
+            ).first()
+
+            if existing_fee is not None:
+                continue
+
+            try:
+                get_or_create_fee(
+                    player_id=player.id,
+                    month=month,
+                )
+
+                created_count += 1
+
+            except ValueError:
+                # No current/previous fee exists.
+                # Leave the player without a fee row.
+                continue
+
+        if created_count:
+            db.session.commit()
 
     # --------------------------------------------------------
     # FETCH
@@ -170,13 +220,11 @@ def get_fee(fee_id):
     )
 
     try:
-
         can_view_fee_category(
             fee.player.category_id
         )
 
     except PermissionError as e:
-
         return jsonify({
             "error": e.message
         }), e.status_code
@@ -226,7 +274,6 @@ def create_fee():
         or not month
         or fee_amount is None
     ):
-
         return jsonify({
             "error": (
                 "player_id, month and "
@@ -235,7 +282,6 @@ def create_fee():
         }), 400
 
     if fee_amount < Decimal("0"):
-
         return jsonify({
             "error": (
                 "fee_amount cannot "
@@ -260,20 +306,41 @@ def create_fee():
     # --------------------------------------------------------
 
     try:
-
         category_permission_check(
             player.category_id,
             action="write"
         )
 
     except PermissionError as e:
-
         return jsonify({
             "error": e.message
         }), e.status_code
 
+    # ========================================================
+    # IMPORTANT:
+    # SAVE PLAYER'S CURRENT / DEFAULT MONTHLY FEE
+    # ========================================================
+    #
+    # This is the permanent value used for future months.
+    #
+    # Example:
+    #
+    # October  -> admin sets ₹1000
+    # player.monthly_fee = ₹1000
+    #
+    # November -> automatically ₹1000
+    # December -> automatically ₹1000
+    #
+    # If admin later changes it to ₹1200:
+    #
+    # Old Fee rows remain unchanged.
+    # Future months use ₹1200.
+    # ========================================================
+
+    player.monthly_fee = fee_amount
+
     # --------------------------------------------------------
-    # CREATE / UPDATE FEE
+    # CREATE / UPDATE CURRENT MONTH FEE
     # --------------------------------------------------------
 
     fee = get_or_create_fee(
@@ -281,6 +348,10 @@ def create_fee():
         month,
         fee_amount
     )
+
+    # --------------------------------------------------------
+    # SAVE BOTH PLAYER SETTING + CURRENT MONTH FEE
+    # --------------------------------------------------------
 
     db.session.commit()
 
@@ -311,14 +382,12 @@ def update_fee(fee_id):
     # --------------------------------------------------------
 
     try:
-
         category_permission_check(
             fee.player.category_id,
             action="write"
         )
 
     except PermissionError as e:
-
         return jsonify({
             "error": e.message
         }), e.status_code
@@ -341,13 +410,11 @@ def update_fee(fee_id):
     # --------------------------------------------------------
 
     if fee_amount is None:
-
         return jsonify({
             "error": "fee_amount is required"
         }), 400
 
     if fee_amount < Decimal("0"):
-
         return jsonify({
             "error": (
                 "fee_amount cannot "
@@ -360,6 +427,18 @@ def update_fee(fee_id):
     )
 
     # ========================================================
+    # SAVE NEW CURRENT MONTHLY FEE
+    # ========================================================
+    #
+    # This changes the player's default fee for FUTURE months.
+    #
+    # Existing historical Fee rows are not automatically
+    # modified.
+    # ========================================================
+
+    fee.player.monthly_fee = fee_amount
+
+    # ========================================================
     # FREE
     # ========================================================
 
@@ -370,7 +449,6 @@ def update_fee(fee_id):
         fee.balance = Decimal("0.00")
 
         # Existing model has no FREE status.
-        # FREE is identified by fee_amount == 0.
         fee.status = Fee.STATUS_PAID
 
     # ========================================================
@@ -403,10 +481,6 @@ def update_fee(fee_id):
 @require_admin
 def create_payment(fee_id):
 
-    # --------------------------------------------------------
-    # FIND FEE
-    # --------------------------------------------------------
-
     fee = Fee.query.get_or_404(
         fee_id
     )
@@ -416,14 +490,12 @@ def create_payment(fee_id):
     # --------------------------------------------------------
 
     try:
-
         category_permission_check(
             fee.player.category_id,
             action="write"
         )
 
     except PermissionError as e:
-
         return jsonify({
             "error": e.message
         }), e.status_code
@@ -467,7 +539,6 @@ def create_payment(fee_id):
     # --------------------------------------------------------
 
     if amount is None:
-
         return jsonify({
             "error": "amount is required"
         }), 400
@@ -477,7 +548,6 @@ def create_payment(fee_id):
     )
 
     if amount <= Decimal("0.00"):
-
         return jsonify({
             "error": (
                 "Payment amount must "
@@ -490,7 +560,6 @@ def create_payment(fee_id):
     # --------------------------------------------------------
 
     if not payment_method:
-
         return jsonify({
             "error": (
                 "payment_method is required"
@@ -502,7 +571,6 @@ def create_payment(fee_id):
     ).upper()
 
     if payment_method not in VALID_METHODS:
-
         return jsonify({
             "error": (
                 "Invalid payment method. "
@@ -515,7 +583,6 @@ def create_payment(fee_id):
     # --------------------------------------------------------
 
     if amount > fee.balance:
-
         return jsonify({
             "error": (
                 "Payment amount cannot "
@@ -530,7 +597,6 @@ def create_payment(fee_id):
     recorded_by = get_jwt_identity()
 
     try:
-
         recorded_by = int(
             recorded_by
         )
@@ -539,7 +605,6 @@ def create_payment(fee_id):
         TypeError,
         ValueError
     ):
-
         recorded_by = None
 
     # --------------------------------------------------------
@@ -547,7 +612,6 @@ def create_payment(fee_id):
     # --------------------------------------------------------
 
     try:
-
         payment = record_payment(
             fee=fee,
             amount=amount,
@@ -556,7 +620,6 @@ def create_payment(fee_id):
         )
 
     except ValueError as e:
-
         return jsonify({
             "error": str(e)
         }), 400
@@ -595,13 +658,11 @@ def list_payments(fee_id):
     # --------------------------------------------------------
 
     try:
-
         can_view_fee_category(
             fee.player.category_id
         )
 
     except PermissionError as e:
-
         return jsonify({
             "error": e.message
         }), e.status_code
@@ -634,14 +695,12 @@ def update_payment(payment_id):
     # --------------------------------------------------------
 
     try:
-
         category_permission_check(
             fee.player.category_id,
             action="write"
         )
 
     except PermissionError as e:
-
         return jsonify({
             "error": e.message
         }), e.status_code
@@ -664,7 +723,6 @@ def update_payment(payment_id):
         )
 
         if amount is None:
-
             return jsonify({
                 "error": "Invalid amount"
             }), 400
@@ -688,7 +746,6 @@ def update_payment(payment_id):
         ).upper()
 
         if payment_method not in VALID_METHODS:
-
             return jsonify({
                 "error": (
                     "Invalid payment method"
@@ -700,7 +757,6 @@ def update_payment(payment_id):
     # --------------------------------------------------------
 
     try:
-
         payment = edit_payment(
             payment=payment,
             amount=amount,
@@ -708,7 +764,6 @@ def update_payment(payment_id):
         )
 
     except ValueError as e:
-
         return jsonify({
             "error": str(e)
         }), 400
@@ -745,14 +800,12 @@ def remove_payment(payment_id):
     # --------------------------------------------------------
 
     try:
-
         category_permission_check(
             fee.player.category_id,
             action="write"
         )
 
     except PermissionError as e:
-
         return jsonify({
             "error": e.message
         }), e.status_code
@@ -795,7 +848,6 @@ def collection_total():
     )
 
     if not month:
-
         return jsonify({
             "error": "month is required"
         }), 400
@@ -807,13 +859,11 @@ def collection_total():
     if category_id:
 
         try:
-
             category_id = int(
                 category_id
             )
 
         except ValueError:
-
             return jsonify({
                 "error": (
                     "category_id must "
@@ -822,13 +872,11 @@ def collection_total():
             }), 400
 
         try:
-
             can_view_fee_category(
                 category_id
             )
 
         except PermissionError as e:
-
             return jsonify({
                 "error": e.message
             }), e.status_code
