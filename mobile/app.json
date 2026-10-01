@@ -31,7 +31,11 @@
       "expo-sharing"
     ],
     "extra": {
-      "apiBaseUrl": "https://playmaker-vl6z.onrender.com/api"
+      "apiBaseUrl": "https://playmaker-vl6z.onrender.com/api",
+      "router": {},
+      "eas": {
+        "projectId": "f6c1a7ea-a45c-40ef-94c7-905d6db9270e"
+      }
     }
   }
 }

@@ -92,8 +92,6 @@ export default function FeesScreen() {
   const [fees, setFees] = useState<Fee[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const [monthDate, setMonthDate] = useState(new Date());
-
   /* ---------------- COLLECT PAYMENT ---------------- */
 
   const [showCollect, setShowCollect] = useState(false);
@@ -125,6 +123,8 @@ export default function FeesScreen() {
   const [loadingHistory, setLoadingHistory] = useState(false);
 
   /* ---------------- MONTH ---------------- */
+
+  const [monthDate, setMonthDate] = useState(new Date());
 
   const month = monthDate.getMonth() + 1;
   const year = monthDate.getFullYear();

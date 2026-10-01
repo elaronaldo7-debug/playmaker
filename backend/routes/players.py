@@ -11,6 +11,7 @@ from werkzeug.utils import secure_filename
 from extensions import db
 from models.player import Player
 from models.category import Category
+from models.player_transfer import PlayerTransfer
 
 from utils.auth import (
     require_auth,
@@ -303,6 +304,259 @@ def get_player(player_id):
     return jsonify(
         data
     )
+# =========================================================
+# TRANSFER PLAYER
+# =========================================================
+#
+# POST /api/players/<player_id>/transfer
+#
+# Admin only.
+#
+# Body:
+#
+# {
+#     "to_category_id": 5,
+#     "reason": "Moved to higher category"
+# }
+#
+# =========================================================
+
+@players_bp.route(
+    "/<int:player_id>/transfer",
+    methods=["POST"]
+)
+@require_admin
+def transfer_player(player_id):
+
+    # =====================================================
+    # FIND PLAYER
+    # =====================================================
+
+    player = Player.query.get_or_404(
+        player_id
+    )
+
+    # =====================================================
+    # REQUEST DATA
+    # =====================================================
+
+    data = request.get_json(
+        silent=True
+    ) or {}
+
+    # =====================================================
+    # TARGET CATEGORY
+    # =====================================================
+
+    to_category_id = data.get(
+        "to_category_id"
+    )
+
+    try:
+
+        to_category_id = int(
+            to_category_id
+        )
+
+    except (
+        TypeError,
+        ValueError
+    ):
+
+        return jsonify(
+            {
+                "message":
+                    "Valid target category is required"
+            }
+        ), 400
+
+    # =====================================================
+    # FIND TARGET CATEGORY
+    # =====================================================
+
+    to_category = Category.query.get(
+        to_category_id
+    )
+
+    if not to_category:
+
+        return jsonify(
+            {
+                "message":
+                    "Target category not found"
+            }
+        ), 404
+
+    # =====================================================
+    # CHECK ACTIVE CATEGORY
+    # =====================================================
+
+    if not to_category.is_active:
+
+        return jsonify(
+            {
+                "message":
+                    "Target category is inactive"
+            }
+        ), 400
+
+    # =====================================================
+    # CHECK SAME CATEGORY
+    # =====================================================
+
+    if player.category_id == to_category.id:
+
+        return jsonify(
+            {
+                "message":
+                    "Player is already in this category"
+            }
+        ), 400
+
+    # =====================================================
+    # OLD CATEGORY
+    # =====================================================
+
+    from_category_id = player.category_id
+
+    from_category = Category.query.get(
+        from_category_id
+    )
+
+    if not from_category:
+
+        return jsonify(
+            {
+                "message":
+                    "Current player category not found"
+            }
+        ), 500
+
+    # =====================================================
+    # REASON
+    # =====================================================
+
+    reason = data.get(
+        "reason"
+    )
+
+    if reason is not None:
+
+        reason = str(
+            reason
+        ).strip()
+
+        if reason == "":
+            reason = None
+
+        if reason and len(reason) > 255:
+
+            return jsonify(
+                {
+                    "message":
+                        "Transfer reason is too long"
+                }
+            ), 400
+
+    # =====================================================
+    # TRANSFERRED BY
+    # =====================================================
+
+    transferred_by = None
+
+    try:
+
+        from flask_jwt_extended import get_jwt_identity
+
+        identity = get_jwt_identity()
+
+        if identity is not None:
+
+            transferred_by = str(
+                identity
+            )
+
+    except Exception:
+
+        transferred_by = None
+
+    # =====================================================
+    # CREATE TRANSFER HISTORY
+    # =====================================================
+
+    transfer = PlayerTransfer(
+        player_id=player.id,
+
+        from_category_id=(
+            from_category.id
+        ),
+
+        to_category_id=(
+            to_category.id
+        ),
+
+        reason=reason,
+
+        transferred_by=transferred_by,
+    )
+
+    # =====================================================
+    # UPDATE PLAYER CATEGORY
+    # =====================================================
+
+    player.category_id = (
+        to_category.id
+    )
+
+    db.session.add(
+        transfer
+    )
+
+    # =====================================================
+    # SAVE
+    # =====================================================
+
+    try:
+
+        db.session.commit()
+
+    except Exception as e:
+
+        db.session.rollback()
+
+        return jsonify(
+            {
+                "message":
+                    "Could not transfer player",
+                "error":
+                    str(e),
+            }
+        ), 500
+
+    # =====================================================
+    # RESPONSE
+    # =====================================================
+
+    return jsonify(
+        {
+            "success": True,
+
+            "message": (
+                f"Player transferred from "
+                f"{from_category.name} "
+                f"to "
+                f"{to_category.name}"
+            ),
+
+            "player": (
+                player.to_dict()
+            ),
+
+            "transfer": (
+                transfer.to_dict()
+            ),
+        }
+    ), 200
 
 
 # =========================================================

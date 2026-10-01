@@ -11,6 +11,7 @@ import {
   Alert,
   ActivityIndicator,
   Modal,
+  TextInput,
 } from "react-native";
 
 import { Ionicons } from "@expo/vector-icons";
@@ -35,9 +36,9 @@ import {
 
 import { Player } from "@/types";
 
-/* ============================================================ */
-/* API SERVER URL */
-/* ============================================================ */
+/* ============================================================
+   API SERVER URL
+============================================================ */
 
 const API_BASE_URL =
   (Constants.expoConfig?.extra?.apiBaseUrl as string) ||
@@ -45,9 +46,30 @@ const API_BASE_URL =
 
 const API_SERVER_URL = API_BASE_URL.replace(/\/api\/?$/, "");
 
-/* ============================================================ */
-/* MAIN SCREEN */
-/* ============================================================ */
+/* ============================================================
+   TYPES
+============================================================ */
+
+type Category = {
+  id: number;
+  name: string;
+  is_active: boolean;
+};
+
+type TransferAction = {
+  id: number;
+  from_category_id: number;
+  from_category_name: string | null;
+  to_category_id: number;
+  to_category_name: string | null;
+  reason: string | null;
+  transferred_by: string | null;
+  transferred_at: string | null;
+};
+
+/* ============================================================
+   MAIN SCREEN
+============================================================ */
 
 export default function PlayerProfileScreen() {
   const { id } =
@@ -78,6 +100,38 @@ export default function PlayerProfileScreen() {
   const [showPhotoViewer, setShowPhotoViewer] =
     useState(false);
 
+  /* ==========================================================
+     TRANSFER STATE
+  ========================================================== */
+
+  const [showTransferModal, setShowTransferModal] =
+    useState(false);
+
+  const [categories, setCategories] =
+    useState<Category[]>([]);
+
+  const [categoriesLoading, setCategoriesLoading] =
+    useState(false);
+
+  const [transferLoading, setTransferLoading] =
+    useState(false);
+
+  const [selectedCategoryId, setSelectedCategoryId] =
+    useState<number | null>(null);
+
+  const [transferReason, setTransferReason] =
+    useState("");
+
+  const [transferHistory, setTransferHistory] =
+    useState<TransferAction[]>([]);
+
+  const [transferHistoryLoading, setTransferHistoryLoading] =
+    useState(false);
+
+  /* ==========================================================
+     STATUS STATE
+  ========================================================== */
+
   const [statusAction, setStatusAction] =
     useState<
       "ACTIVATE" |
@@ -86,9 +140,9 @@ export default function PlayerProfileScreen() {
       null
     >(null);
 
-  /* ========================================================== */
-  /* LOAD PLAYER */
-  /* ========================================================== */
+  /* ==========================================================
+     LOAD PLAYER
+  ========================================================== */
 
   const loadPlayer = useCallback(
     async () => {
@@ -136,16 +190,253 @@ export default function PlayerProfileScreen() {
     loadPlayer();
   }, [loadPlayer]);
 
-  /* ========================================================== */
-  /* PROFILE PHOTO */
-  /* ========================================================== */
+  /* ==========================================================
+     LOAD CATEGORIES
+  ========================================================== */
+
+  const loadCategories = async () => {
+    try {
+      setCategoriesLoading(true);
+
+      const { data } =
+        await api.get<any>(
+          "/categories"
+        );
+
+      /*
+       * API may return:
+       * data = [...]
+       *
+       * OR:
+       * data = { categories: [...] }
+       */
+
+      let categoryList: Category[] = [];
+
+      if (Array.isArray(data)) {
+        categoryList = data;
+      } else if (
+        Array.isArray(data?.categories)
+      ) {
+        categoryList = data.categories;
+      }
+
+      categoryList =
+        categoryList.filter(
+          (category) =>
+            category.is_active !== false
+        );
+
+      setCategories(categoryList);
+    } catch (e) {
+      Alert.alert(
+        "Error",
+        apiErrorMessage(
+          e,
+          "Could not load categories"
+        )
+      );
+    } finally {
+      setCategoriesLoading(false);
+    }
+  };
+
+  /* ==========================================================
+     LOAD TRANSFER HISTORY
+  ========================================================== */
+
+  const loadTransferHistory = async () => {
+    if (!player?.id) {
+      return;
+    }
+
+    try {
+      setTransferHistoryLoading(true);
+
+      const { data } =
+        await api.get<any>(
+          `/players/${player.id}/transfers`
+        );
+
+      if (
+        Array.isArray(data?.transfers)
+      ) {
+        setTransferHistory(
+          data.transfers
+        );
+      } else {
+        setTransferHistory([]);
+      }
+    } catch (e) {
+      console.log(
+        "TRANSFER HISTORY ERROR:",
+        e
+      );
+
+      setTransferHistory([]);
+    } finally {
+      setTransferHistoryLoading(false);
+    }
+  };
+
+  /* ==========================================================
+     OPEN TRANSFER MODAL
+  ========================================================== */
+
+  const openTransferModal = async () => {
+    if (!player) {
+      return;
+    }
+
+    if (user?.role !== "ADMIN") {
+      Alert.alert(
+        "Admin Only",
+        "Only an admin can transfer players."
+      );
+      return;
+    }
+
+    setSelectedCategoryId(null);
+    setTransferReason("");
+
+    setShowTransferModal(true);
+
+    await loadCategories();
+    await loadTransferHistory();
+  };
+
+  /* ==========================================================
+     CLOSE TRANSFER MODAL
+  ========================================================== */
+
+  const closeTransferModal = () => {
+    if (transferLoading) {
+      return;
+    }
+
+    setShowTransferModal(false);
+    setSelectedCategoryId(null);
+    setTransferReason("");
+  };
+
+  /* ==========================================================
+     TRANSFER PLAYER
+  ========================================================== */
+
+  const executeTransfer = async () => {
+    if (!player) {
+      return;
+    }
+
+    if (user?.role !== "ADMIN") {
+      Alert.alert(
+        "Admin Only",
+        "Only an admin can transfer players."
+      );
+      return;
+    }
+
+    if (!selectedCategoryId) {
+      Alert.alert(
+        "Select Category",
+        "Please select the category to transfer the player to."
+      );
+      return;
+    }
+
+    if (
+      selectedCategoryId ===
+      player.category_id
+    ) {
+      Alert.alert(
+        "Invalid Category",
+        "Player is already in this category."
+      );
+      return;
+    }
+
+    const targetCategory =
+      categories.find(
+        (category) =>
+          category.id ===
+          selectedCategoryId
+      );
+
+    if (!targetCategory) {
+      Alert.alert(
+        "Error",
+        "Selected category was not found."
+      );
+      return;
+    }
+
+    Alert.alert(
+      "Confirm Transfer",
+      `Transfer ${player.player_name} from ${player.category_name || "Current Category"} to ${targetCategory.name}?`,
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Transfer",
+          onPress: async () => {
+            try {
+              setTransferLoading(true);
+
+              const { data } =
+                await api.post<Player>(
+                  `/players/${player.id}/transfer`,
+                  {
+                    to_category_id:
+                      selectedCategoryId,
+                    reason:
+                      transferReason.trim() ||
+                      null,
+                  }
+                );
+
+              setPlayer(data);
+
+              setShowTransferModal(false);
+
+              setSelectedCategoryId(null);
+
+              setTransferReason("");
+
+              await loadTransferHistory();
+
+              Alert.alert(
+                "Transfer Successful",
+                `${player.player_name} has been transferred to ${targetCategory.name}.`
+              );
+            } catch (e) {
+              Alert.alert(
+                "Transfer Failed",
+                apiErrorMessage(
+                  e,
+                  "Could not transfer player"
+                )
+              );
+            } finally {
+              setTransferLoading(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  /* ==========================================================
+     PROFILE PHOTO
+  ========================================================== */
 
   const pickProfilePhoto =
     async () => {
       try {
-        /* ---------------------------------------------------- */
-        /* PHOTO PERMISSION */
-        /* ---------------------------------------------------- */
+        /* ----------------------------------------------------
+           PHOTO PERMISSION
+        ---------------------------------------------------- */
 
         const permission =
           await ImagePicker
@@ -160,31 +451,22 @@ export default function PlayerProfileScreen() {
           return;
         }
 
-        /* ---------------------------------------------------- */
-        /* OPEN GALLERY */
-        /* ---------------------------------------------------- */
+        /* ----------------------------------------------------
+           OPEN GALLERY
+        ---------------------------------------------------- */
 
         const result =
           await ImagePicker
             .launchImageLibraryAsync({
               mediaTypes: ["images"],
-
-              /*
-               * IMPORTANT:
-               * Force square selection.
-               * The final profile image will be circular.
-               */
-
               allowsEditing: true,
-
               aspect: [1, 1],
-
               quality: 0.85,
             });
 
-        /* ---------------------------------------------------- */
-        /* USER CANCELLED */
-        /* ---------------------------------------------------- */
+        /* ----------------------------------------------------
+           USER CANCELLED
+        ---------------------------------------------------- */
 
         if (
           result.canceled ||
@@ -197,15 +479,15 @@ export default function PlayerProfileScreen() {
         const asset =
           result.assets[0];
 
-        /* ---------------------------------------------------- */
-        /* START LOADING */
-        /* ---------------------------------------------------- */
+        /* ----------------------------------------------------
+           START LOADING
+        ---------------------------------------------------- */
 
         setPhotoLoading(true);
 
-        /* ---------------------------------------------------- */
-        /* CHECK PLAYER */
-        /* ---------------------------------------------------- */
+        /* ----------------------------------------------------
+           CHECK PLAYER
+        ---------------------------------------------------- */
 
         if (!player?.id) {
           Alert.alert(
@@ -218,9 +500,9 @@ export default function PlayerProfileScreen() {
           return;
         }
 
-        /* ---------------------------------------------------- */
-        /* FORM DATA */
-        /* ---------------------------------------------------- */
+        /* ----------------------------------------------------
+           FORM DATA
+        ---------------------------------------------------- */
 
         const formData =
           new FormData();
@@ -233,9 +515,9 @@ export default function PlayerProfileScreen() {
           asset.mimeType ||
           "image/jpeg";
 
-        /* ---------------------------------------------------- */
-        /* WEB */
-        /* ---------------------------------------------------- */
+        /* ----------------------------------------------------
+           WEB
+        ---------------------------------------------------- */
 
         if (asset.file) {
           formData.append(
@@ -244,9 +526,9 @@ export default function PlayerProfileScreen() {
           );
         }
 
-        /* ---------------------------------------------------- */
-        /* ANDROID / IOS */
-        /* ---------------------------------------------------- */
+        /* ----------------------------------------------------
+           ANDROID / IOS
+        ---------------------------------------------------- */
 
         else {
           formData.append(
@@ -259,9 +541,9 @@ export default function PlayerProfileScreen() {
           );
         }
 
-        /* ---------------------------------------------------- */
-        /* UPLOAD TO FLASK */
-        /* ---------------------------------------------------- */
+        /* ----------------------------------------------------
+           UPLOAD TO FLASK
+        ---------------------------------------------------- */
 
         console.log(
           "Uploading profile photo...",
@@ -284,15 +566,15 @@ export default function PlayerProfileScreen() {
             }
           );
 
-        /* ---------------------------------------------------- */
-        /* UPDATE PLAYER */
-        /* ---------------------------------------------------- */
+        /* ----------------------------------------------------
+           UPDATE PLAYER
+        ---------------------------------------------------- */
 
         setPlayer(data);
 
-        /* ---------------------------------------------------- */
-        /* SUCCESS */
-        /* ---------------------------------------------------- */
+        /* ----------------------------------------------------
+           SUCCESS
+        ---------------------------------------------------- */
 
         Alert.alert(
           "Success",
@@ -316,9 +598,9 @@ export default function PlayerProfileScreen() {
       }
     };
 
-  /* ========================================================== */
-  /* PLAYER STATUS ACTIONS */
-  /* ========================================================== */
+  /* ==========================================================
+     PLAYER STATUS ACTIONS
+  ========================================================== */
 
   const openStatusAction = (
     action:
@@ -331,7 +613,9 @@ export default function PlayerProfileScreen() {
   };
 
   const closeStatusModal = () => {
-    if (actionLoading) return;
+    if (actionLoading) {
+      return;
+    }
 
     setShowStatusModal(false);
     setStatusAction(null);
@@ -346,9 +630,9 @@ export default function PlayerProfileScreen() {
       try {
         setActionLoading(true);
 
-        /* -------------------------------------------------- */
-        /* ACTIVATE / DEACTIVATE */
-        /* -------------------------------------------------- */
+        /* --------------------------------------------------
+           ACTIVATE / DEACTIVATE
+        -------------------------------------------------- */
 
         if (
           statusAction === "ACTIVATE" ||
@@ -370,6 +654,7 @@ export default function PlayerProfileScreen() {
           setPlayer(data);
 
           setShowStatusModal(false);
+
           setStatusAction(null);
 
           Alert.alert(
@@ -382,9 +667,9 @@ export default function PlayerProfileScreen() {
           return;
         }
 
-        /* -------------------------------------------------- */
-        /* DELETE */
-        /* -------------------------------------------------- */
+        /* --------------------------------------------------
+           DELETE
+        -------------------------------------------------- */
 
         if (statusAction === "DELETE") {
           await api.delete(
@@ -392,6 +677,7 @@ export default function PlayerProfileScreen() {
           );
 
           setShowStatusModal(false);
+
           setStatusAction(null);
 
           Alert.alert(
@@ -419,9 +705,9 @@ export default function PlayerProfileScreen() {
       }
     };
 
-  /* ========================================================== */
-  /* PHOTO URL */
-  /* ========================================================== */
+  /* ==========================================================
+     PHOTO URL
+  ========================================================== */
 
   const getProfilePhotoUrl =
     () => {
@@ -453,9 +739,9 @@ export default function PlayerProfileScreen() {
   const profilePhotoUrl =
     getProfilePhotoUrl();
 
-  /* ========================================================== */
-  /* LOADING */
-  /* ========================================================== */
+  /* ==========================================================
+     LOADING
+  ========================================================== */
 
   if (loading) {
     return (
@@ -473,9 +759,9 @@ export default function PlayerProfileScreen() {
     );
   }
 
-  /* ========================================================== */
-  /* ERROR */
-  /* ========================================================== */
+  /* ==========================================================
+     ERROR
+  ========================================================== */
 
   if (error || !player) {
     return (
@@ -500,9 +786,9 @@ export default function PlayerProfileScreen() {
     );
   }
 
-  /* ========================================================== */
-  /* DATA */
-  /* ========================================================== */
+  /* ==========================================================
+     DATA
+  ========================================================== */
 
   const attendanceHistory =
     player.attendance_history || [];
@@ -518,16 +804,16 @@ export default function PlayerProfileScreen() {
       attendance_percentage: 0,
     };
 
-  /* ========================================================== */
-  /* UI */
-  /* ========================================================== */
+  /* ==========================================================
+     UI
+  ========================================================== */
 
   return (
     <ScreenContainer scroll={false}>
 
-      {/* ====================================================== */}
-      {/* HEADER */}
-      {/* ====================================================== */}
+      {/* ======================================================
+          HEADER
+      ====================================================== */}
 
       <Header
         title="Profile"
@@ -560,9 +846,9 @@ export default function PlayerProfileScreen() {
         }
       >
 
-        {/* ==================================================== */}
-        {/* PROFILE PHOTO */}
-        {/* ==================================================== */}
+        {/* ====================================================
+            PROFILE PHOTO
+        ==================================================== */}
 
         <View
           style={
@@ -574,11 +860,6 @@ export default function PlayerProfileScreen() {
               styles.photoWrapper
             }
           >
-
-            {/* ---------------------------------------------- */}
-            {/* CIRCULAR PROFILE PHOTO */}
-            {/* ---------------------------------------------- */}
-
             <Pressable
               style={
                 styles.profileCircle
@@ -616,10 +897,6 @@ export default function PlayerProfileScreen() {
               )}
             </Pressable>
 
-            {/* ---------------------------------------------- */}
-            {/* CAMERA BUTTON */}
-            {/* ---------------------------------------------- */}
-
             <TouchableOpacity
               style={
                 styles.photoEditButton
@@ -645,7 +922,6 @@ export default function PlayerProfileScreen() {
                 />
               )}
             </TouchableOpacity>
-
           </View>
 
           <Text
@@ -657,9 +933,9 @@ export default function PlayerProfileScreen() {
           </Text>
         </View>
 
-        {/* ==================================================== */}
-        {/* PERSONAL DETAILS */}
-        {/* ==================================================== */}
+        {/* ====================================================
+            PERSONAL DETAILS
+        ==================================================== */}
 
         <View
           style={styles.section}
@@ -729,9 +1005,91 @@ export default function PlayerProfileScreen() {
           />
         </View>
 
-        {/* ==================================================== */}
-        {/* ACADEMY STATUS */}
-        {/* ==================================================== */}
+        {/* ====================================================
+            TRANSFER PLAYER
+        ==================================================== */}
+
+        {user?.role === "ADMIN" && (
+          <View
+            style={styles.section}
+          >
+            <SectionTitle
+              icon="swap-horizontal-outline"
+              title="Player Transfer"
+            />
+
+            <View
+              style={
+                styles.transferInfoCard
+              }
+            >
+              <View
+                style={
+                  styles.transferInfoIcon
+                }
+              >
+                <Ionicons
+                  name="football-outline"
+                  size={22}
+                  color={
+                    colors.primary
+                  }
+                />
+              </View>
+
+              <View
+                style={
+                  styles.transferInfoContent
+                }
+              >
+                <Text
+                  style={
+                    styles.transferInfoLabel
+                  }
+                >
+                  Current Category
+                </Text>
+
+                <Text
+                  style={
+                    styles.transferInfoValue
+                  }
+                >
+                  {player.category_name ||
+                    "Not assigned"}
+                </Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={
+                styles.transferButton
+              }
+              onPress={
+                openTransferModal
+              }
+              activeOpacity={0.85}
+            >
+              <Ionicons
+                name="swap-horizontal-outline"
+                size={21}
+                color="#FFFFFF"
+              />
+
+              <Text
+                style={
+                  styles.transferButtonText
+                }
+              >
+                Transfer Player
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* ====================================================
+            ACADEMY STATUS
+        ==================================================== */}
 
         {canEditPlayers(user) && (
           <View
@@ -880,9 +1238,9 @@ export default function PlayerProfileScreen() {
           </View>
         )}
 
-        {/* ==================================================== */}
-        {/* SCHOOL DETAILS */}
-        {/* ==================================================== */}
+        {/* ====================================================
+            SCHOOL DETAILS
+        ==================================================== */}
 
         <View
           style={styles.section}
@@ -911,9 +1269,9 @@ export default function PlayerProfileScreen() {
           />
         </View>
 
-        {/* ==================================================== */}
-        {/* CONTACT DETAILS */}
-        {/* ==================================================== */}
+        {/* ====================================================
+            CONTACT DETAILS
+        ==================================================== */}
 
         <View
           style={styles.section}
@@ -951,9 +1309,9 @@ export default function PlayerProfileScreen() {
           />
         </View>
 
-        {/* ==================================================== */}
-        {/* HEALTH */}
-        {/* ==================================================== */}
+        {/* ====================================================
+            HEALTH
+        ==================================================== */}
 
         <View
           style={styles.section}
@@ -981,9 +1339,9 @@ export default function PlayerProfileScreen() {
           </View>
         </View>
 
-        {/* ==================================================== */}
-        {/* ATTENDANCE SUMMARY */}
-        {/* ==================================================== */}
+        {/* ====================================================
+            ATTENDANCE SUMMARY
+        ==================================================== */}
 
         <View
           style={styles.section}
@@ -1081,9 +1439,9 @@ export default function PlayerProfileScreen() {
           </View>
         </View>
 
-        {/* ==================================================== */}
-        {/* RECENT ATTENDANCE */}
-        {/* ==================================================== */}
+        {/* ====================================================
+            RECENT ATTENDANCE
+        ==================================================== */}
 
         <View
           style={styles.section}
@@ -1122,9 +1480,9 @@ export default function PlayerProfileScreen() {
           )}
         </View>
 
-        {/* ==================================================== */}
-        {/* FEE HISTORY */}
-        {/* ==================================================== */}
+        {/* ====================================================
+            FEE HISTORY
+        ==================================================== */}
 
         <View
           style={styles.section}
@@ -1160,15 +1518,48 @@ export default function PlayerProfileScreen() {
           )}
         </View>
 
+        {/* ====================================================
+            TRANSFER HISTORY
+        ==================================================== */}
+
+        {user?.role === "ADMIN" &&
+          transferHistory.length > 0 && (
+            <View
+              style={styles.section}
+            >
+              <SectionTitle
+                icon="time-outline"
+                title="Transfer History"
+              />
+
+              <View
+                style={
+                  styles.transferHistoryCard
+                }
+              >
+                {transferHistory.map(
+                  (transfer) => (
+                    <TransferHistoryRow
+                      key={transfer.id}
+                      transfer={
+                        transfer
+                      }
+                    />
+                  )
+                )}
+              </View>
+            </View>
+          )}
+
         <View
           style={{ height: 50 }}
         />
 
       </ScrollView>
 
-      {/* ====================================================== */}
-      {/* PROFILE PHOTO VIEWER */}
-      {/* ====================================================== */}
+      {/* ======================================================
+          PROFILE PHOTO VIEWER
+      ====================================================== */}
 
       <Modal
         visible={
@@ -1188,9 +1579,6 @@ export default function PlayerProfileScreen() {
             setShowPhotoViewer(false)
           }
         >
-
-          {/* CLOSE BUTTON */}
-
           <TouchableOpacity
             style={
               styles.photoViewerClose
@@ -1206,8 +1594,6 @@ export default function PlayerProfileScreen() {
               color="#FFFFFF"
             />
           </TouchableOpacity>
-
-          {/* BIG CIRCLE */}
 
           <View
             style={
@@ -1256,13 +1642,12 @@ export default function PlayerProfileScreen() {
           >
             Tap outside to close
           </Text>
-
         </Pressable>
       </Modal>
 
-      {/* ====================================================== */}
-      {/* STATUS CONFIRMATION MODAL */}
-      {/* ====================================================== */}
+      {/* ======================================================
+          STATUS CONFIRMATION MODAL
+      ====================================================== */}
 
       <Modal
         visible={
@@ -1379,9 +1764,8 @@ export default function PlayerProfileScreen() {
               <TouchableOpacity
                 style={[
                   styles.modalConfirmButton,
-
                   statusAction ===
-                  "DELETE"
+                    "DELETE"
                     ? styles.modalDeleteButton
                     : statusAction ===
                       "ACTIVATE"
@@ -1420,13 +1804,435 @@ export default function PlayerProfileScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* ======================================================
+          TRANSFER MODAL
+      ====================================================== */}
+
+      <Modal
+        visible={
+          showTransferModal
+        }
+        transparent
+        animationType="slide"
+        onRequestClose={
+          closeTransferModal
+        }
+      >
+        <View
+          style={
+            styles.transferModalOverlay
+          }
+        >
+          <View
+            style={
+              styles.transferModalContainer
+            }
+          >
+
+            {/* HEADER */}
+
+            <View
+              style={
+                styles.transferModalHeader
+              }
+            >
+              <View
+                style={
+                  styles.transferModalTitleRow
+                }
+              >
+                <View
+                  style={
+                    styles.transferModalIcon
+                  }
+                >
+                  <Ionicons
+                    name="swap-horizontal-outline"
+                    size={23}
+                    color={
+                      colors.primary
+                    }
+                  />
+                </View>
+
+                <View
+                  style={
+                    styles.transferModalTitleContent
+                  }
+                >
+                  <Text
+                    style={
+                      styles.transferModalTitle
+                    }
+                  >
+                    Transfer Player
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.transferModalPlayer
+                    }
+                  >
+                    {player.player_name}
+                  </Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={
+                  styles.transferCloseButton
+                }
+                onPress={
+                  closeTransferModal
+                }
+                disabled={
+                  transferLoading
+                }
+              >
+                <Ionicons
+                  name="close"
+                  size={24}
+                  color={
+                    colors.textSecondary
+                  }
+                />
+              </TouchableOpacity>
+            </View>
+
+            {/* CURRENT CATEGORY */}
+
+            <View
+              style={
+                styles.currentCategoryCard
+              }
+            >
+              <Text
+                style={
+                  styles.currentCategoryLabel
+                }
+              >
+                Current Category
+              </Text>
+
+              <Text
+                style={
+                  styles.currentCategoryValue
+                }
+              >
+                {player.category_name ||
+                  "Not assigned"}
+              </Text>
+            </View>
+
+            {/* CATEGORY LIST */}
+
+            <Text
+              style={
+                styles.transferSectionLabel
+              }
+            >
+              Transfer To
+            </Text>
+
+            {categoriesLoading ? (
+              <View
+                style={
+                  styles.categoryLoading
+                }
+              >
+                <ActivityIndicator
+                  size="small"
+                  color={
+                    colors.primary
+                  }
+                />
+
+                <Text
+                  style={
+                    styles.categoryLoadingText
+                  }
+                >
+                  Loading categories...
+                </Text>
+              </View>
+            ) : categories.length ===
+              0 ? (
+              <View
+                style={
+                  styles.noCategoryBox
+                }
+              >
+                <Ionicons
+                  name="folder-open-outline"
+                  size={30}
+                  color={
+                    colors.textMuted
+                  }
+                />
+
+                <Text
+                  style={
+                    styles.noCategoryText
+                  }
+                >
+                  No active categories found.
+                </Text>
+              </View>
+            ) : (
+              <ScrollView
+                style={
+                  styles.categoryList
+                }
+                showsVerticalScrollIndicator={
+                  false
+                }
+              >
+                {categories.map(
+                  (category) => {
+                    const isCurrent =
+                      category.id ===
+                      player.category_id;
+
+                    const isSelected =
+                      category.id ===
+                      selectedCategoryId;
+
+                    return (
+                      <TouchableOpacity
+                        key={
+                          category.id
+                        }
+                        style={[
+                          styles.categoryOption,
+                          isCurrent &&
+                            styles.categoryOptionCurrent,
+                          isSelected &&
+                            styles.categoryOptionSelected,
+                        ]}
+                        onPress={() => {
+                          if (
+                            isCurrent
+                          ) {
+                            return;
+                          }
+
+                          setSelectedCategoryId(
+                            category.id
+                          );
+                        }}
+                        disabled={
+                          isCurrent ||
+                          transferLoading
+                        }
+                        activeOpacity={
+                          0.8
+                        }
+                      >
+                        <View
+                          style={
+                            styles.categoryOptionLeft
+                          }
+                        >
+                          <View
+                            style={[
+                              styles.categoryRadio,
+                              isSelected &&
+                                styles.categoryRadioSelected,
+                              isCurrent &&
+                                styles.categoryRadioCurrent,
+                            ]}
+                          >
+                            {isSelected && (
+                              <View
+                                style={
+                                  styles.categoryRadioDot
+                                }
+                              />
+                            )}
+                          </View>
+
+                          <View>
+                            <Text
+                              style={[
+                                styles.categoryName,
+                                isCurrent &&
+                                  styles.categoryNameCurrent,
+                              ]}
+                            >
+                              {
+                                category.name
+                              }
+                            </Text>
+
+                            {isCurrent && (
+                              <Text
+                                style={
+                                  styles.currentCategorySmall
+                                }
+                              >
+                                Current category
+                              </Text>
+                            )}
+                          </View>
+                        </View>
+
+                        {isCurrent ? (
+                          <Ionicons
+                            name="checkmark-circle"
+                            size={22}
+                            color={
+                              colors.present
+                            }
+                          />
+                        ) : isSelected ? (
+                          <Ionicons
+                            name="checkmark-circle"
+                            size={22}
+                            color={
+                              colors.primary
+                            }
+                          />
+                        ) : (
+                          <Ionicons
+                            name="chevron-forward"
+                            size={20}
+                            color={
+                              colors.textMuted
+                            }
+                          />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  }
+                )}
+              </ScrollView>
+            )}
+
+            {/* REASON */}
+
+            <Text
+              style={
+                styles.transferSectionLabel
+              }
+            >
+              Reason
+              <Text
+                style={
+                  styles.optionalText
+                }
+              >
+                {" "}
+                (Optional)
+              </Text>
+            </Text>
+
+            <TextInput
+              value={
+                transferReason
+              }
+              onChangeText={
+                setTransferReason
+              }
+              placeholder="Enter transfer reason..."
+              placeholderTextColor={
+                colors.textMuted
+              }
+              multiline
+              maxLength={255}
+              editable={
+                !transferLoading
+              }
+              style={
+                styles.reasonInput
+              }
+            />
+
+            <Text
+              style={
+                styles.characterCount
+              }
+            >
+              {transferReason.length}/255
+            </Text>
+
+            {/* BUTTONS */}
+
+            <View
+              style={
+                styles.transferModalButtons
+              }
+            >
+              <TouchableOpacity
+                style={
+                  styles.transferCancelButton
+                }
+                onPress={
+                  closeTransferModal
+                }
+                disabled={
+                  transferLoading
+                }
+              >
+                <Text
+                  style={
+                    styles.transferCancelText
+                  }
+                >
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.transferConfirmButton,
+                  (!selectedCategoryId ||
+                    transferLoading) &&
+                    styles.transferConfirmDisabled,
+                ]}
+                onPress={
+                  executeTransfer
+                }
+                disabled={
+                  !selectedCategoryId ||
+                  transferLoading
+                }
+                activeOpacity={0.85}
+              >
+                {transferLoading ? (
+                  <ActivityIndicator
+                    size="small"
+                    color="#FFFFFF"
+                  />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="swap-horizontal-outline"
+                      size={19}
+                      color="#FFFFFF"
+                    />
+
+                    <Text
+                      style={
+                        styles.transferConfirmText
+                      }
+                    >
+                      Transfer
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScreenContainer>
   );
 }
 
-/* ============================================================ */
-/* SECTION TITLE */
-/* ============================================================ */
+/* ============================================================
+   SECTION TITLE
+============================================================ */
 
 function SectionTitle({
   icon,
@@ -1464,9 +2270,9 @@ function SectionTitle({
   );
 }
 
-/* ============================================================ */
-/* INFO ROW */
-/* ============================================================ */
+/* ============================================================
+   INFO ROW
+============================================================ */
 
 function InfoRow({
   icon,
@@ -1530,9 +2336,9 @@ function InfoRow({
   );
 }
 
-/* ============================================================ */
-/* STAT CARD */
-/* ============================================================ */
+/* ============================================================
+   STAT CARD
+============================================================ */
 
 function StatCard({
   icon,
@@ -1585,9 +2391,9 @@ function StatCard({
   );
 }
 
-/* ============================================================ */
-/* ATTENDANCE ROW */
-/* ============================================================ */
+/* ============================================================
+   ATTENDANCE ROW
+============================================================ */
 
 function AttendanceRow({
   record,
@@ -1668,9 +2474,9 @@ function AttendanceRow({
   );
 }
 
-/* ============================================================ */
-/* FEE ROW */
-/* ============================================================ */
+/* ============================================================
+   FEE ROW
+============================================================ */
 
 function FeeRow({
   fee,
@@ -1757,9 +2563,87 @@ function FeeRow({
   );
 }
 
-/* ============================================================ */
-/* STYLES */
-/* ============================================================ */
+/* ============================================================
+   TRANSFER HISTORY ROW
+============================================================ */
+
+function TransferHistoryRow({
+  transfer,
+}: {
+  transfer: TransferAction;
+}) {
+  const formattedDate =
+    transfer.transferred_at
+      ? new Date(
+          transfer.transferred_at
+        ).toLocaleDateString()
+      : "";
+
+  return (
+    <View
+      style={
+        styles.transferHistoryRow
+      }
+    >
+      <View
+        style={
+          styles.transferHistoryIcon
+        }
+      >
+        <Ionicons
+          name="swap-horizontal-outline"
+          size={19}
+          color={
+            colors.primary
+          }
+        />
+      </View>
+
+      <View
+        style={
+          styles.transferHistoryContent
+        }
+      >
+        <Text
+          style={
+            styles.transferHistoryTitle
+          }
+        >
+          {transfer.from_category_name ||
+            "Unknown"}{" "}
+          →{" "}
+          {transfer.to_category_name ||
+            "Unknown"}
+        </Text>
+
+        {transfer.reason ? (
+          <Text
+            style={
+              styles.transferHistoryReason
+            }
+          >
+            {transfer.reason}
+          </Text>
+        ) : null}
+
+        <Text
+          style={
+            styles.transferHistoryDate
+          }
+        >
+          {formattedDate}
+          {transfer.transferred_by
+            ? ` • ${transfer.transferred_by}`
+            : ""}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+/* ============================================================
+   STYLES
+============================================================ */
 
 const styles =
   StyleSheet.create({
@@ -1771,9 +2655,9 @@ const styles =
         spacing.xl,
     },
 
-    /* -------------------------------------------------------- */
-    /* PROFILE PHOTO */
-    /* -------------------------------------------------------- */
+    /* --------------------------------------------------------
+       PROFILE PHOTO
+    -------------------------------------------------------- */
 
     photoSection: {
       alignItems: "center",
@@ -1788,28 +2672,18 @@ const styles =
       position: "relative",
     },
 
-    /*
-     * IMPORTANT:
-     * This wrapper clips the actual image into
-     * a perfect circle.
-     */
-
     profileCircle: {
       width: 155,
       height: 155,
       borderRadius: 77.5,
       overflow: "hidden",
-
       backgroundColor:
         colors.card,
-
       borderWidth: 1,
       borderColor:
         colors.cardBorder,
-
       justifyContent:
         "center",
-
       alignItems:
         "center",
     },
@@ -1824,54 +2698,40 @@ const styles =
       width: "100%",
       height: "100%",
       borderRadius: 77.5,
-
       backgroundColor:
         colors.card,
-
       justifyContent:
         "center",
-
       alignItems:
         "center",
     },
 
-    /* -------------------------------------------------------- */
-    /* CAMERA BUTTON */
-    /* -------------------------------------------------------- */
+    /* --------------------------------------------------------
+       CAMERA BUTTON
+    -------------------------------------------------------- */
 
     photoEditButton: {
       position: "absolute",
-
       right: -8,
       bottom: -7,
-
       width: 60,
       height: 60,
-
       borderRadius: 30,
-
       backgroundColor:
         "#22C55E",
-
       justifyContent:
         "center",
-
       alignItems:
         "center",
-
       borderWidth: 4,
       borderColor:
         colors.bg,
-
       elevation: 7,
-
       shadowColor: "#000",
-
       shadowOffset: {
         width: 0,
         height: 3,
       },
-
       shadowOpacity: 0.3,
       shadowRadius: 5,
     },
@@ -1879,65 +2739,47 @@ const styles =
     changePhotoText: {
       marginTop:
         spacing.md,
-
       color:
         colors.textSecondary,
-
       fontSize: 13,
-
       fontWeight: "500",
     },
 
-    /* ======================================================== */
-    /* PHOTO VIEWER */
-    /* ======================================================== */
+    /* --------------------------------------------------------
+       PHOTO VIEWER
+    -------------------------------------------------------- */
 
     photoViewerOverlay: {
       flex: 1,
-
       backgroundColor:
         "rgba(0,0,0,0.94)",
-
       justifyContent:
         "center",
-
       alignItems:
         "center",
-
       paddingHorizontal: 20,
     },
 
     photoViewerCircle: {
       width: 310,
       height: 310,
-
       borderRadius: 155,
-
       overflow: "hidden",
-
       backgroundColor:
         colors.card,
-
       borderWidth: 3,
       borderColor: "#FFFFFF",
-
       justifyContent:
         "center",
-
       alignItems:
         "center",
-
       elevation: 15,
-
       shadowColor: "#000",
-
       shadowOffset: {
         width: 0,
         height: 8,
       },
-
       shadowOpacity: 0.5,
-
       shadowRadius: 15,
     },
 
@@ -1950,68 +2792,50 @@ const styles =
     photoViewerPlaceholder: {
       width: "100%",
       height: "100%",
-
       borderRadius: 155,
-
       backgroundColor:
         colors.card,
-
       justifyContent:
         "center",
-
       alignItems:
         "center",
     },
 
     photoViewerClose: {
       position: "absolute",
-
       top: 50,
       right: 20,
-
       width: 52,
       height: 52,
-
       borderRadius: 26,
-
       backgroundColor:
         "rgba(255,255,255,0.16)",
-
       justifyContent:
         "center",
-
       alignItems:
         "center",
-
       zIndex: 10,
     },
 
     photoViewerName: {
       marginTop: 25,
-
       color: "#FFFFFF",
-
       fontSize: 21,
-
       fontWeight: "800",
-
       textAlign: "center",
     },
 
     photoViewerHint: {
       marginTop: 8,
-
       color:
         "rgba(255,255,255,0.65)",
-
       fontSize: 13,
-
       textAlign: "center",
     },
 
-    /* -------------------------------------------------------- */
-    /* SECTION */
-    /* -------------------------------------------------------- */
+    /* --------------------------------------------------------
+       SECTION
+    -------------------------------------------------------- */
 
     section: {
       marginBottom:
@@ -2028,19 +2852,14 @@ const styles =
     sectionIcon: {
       width: 38,
       height: 38,
-
       borderRadius:
         radius.md,
-
       backgroundColor:
         colors.primarySoft,
-
       justifyContent:
         "center",
-
       alignItems:
         "center",
-
       marginRight:
         spacing.sm,
     },
@@ -2048,46 +2867,35 @@ const styles =
     sectionTitleText: {
       color:
         colors.textPrimary,
-
       fontSize: 18,
-
       fontWeight: "700",
     },
 
-    /* -------------------------------------------------------- */
-    /* INFO */
-    /* -------------------------------------------------------- */
+    /* --------------------------------------------------------
+       INFO
+    -------------------------------------------------------- */
 
     infoRow: {
       flexDirection: "row",
-
       alignItems:
         "center",
-
       backgroundColor:
         colors.card,
-
       borderWidth: 1,
-
       borderColor:
         colors.cardBorder,
-
       borderRadius:
         radius.md,
-
       padding:
         spacing.md,
-
       marginBottom:
         spacing.sm,
     },
 
     infoIcon: {
       width: 35,
-
       alignItems:
         "center",
-
       marginRight:
         spacing.sm,
     },
@@ -2099,37 +2907,511 @@ const styles =
     infoLabel: {
       color:
         colors.textMuted,
-
       fontSize: 12,
-
       marginBottom: 3,
     },
 
     infoValue: {
       color:
         colors.textPrimary,
-
       fontSize: 15,
-
       fontWeight: "600",
     },
 
-    /* -------------------------------------------------------- */
-    /* HEALTH */
-    /* -------------------------------------------------------- */
+    /* --------------------------------------------------------
+       TRANSFER
+    -------------------------------------------------------- */
+
+    transferInfoCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor:
+        colors.card,
+      borderWidth: 1,
+      borderColor:
+        colors.cardBorder,
+      borderRadius:
+        radius.md,
+      padding:
+        spacing.md,
+      marginBottom:
+        spacing.sm,
+    },
+
+    transferInfoIcon: {
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      backgroundColor:
+        colors.primarySoft,
+      alignItems:
+        "center",
+      justifyContent:
+        "center",
+      marginRight:
+        spacing.sm,
+    },
+
+    transferInfoContent: {
+      flex: 1,
+    },
+
+    transferInfoLabel: {
+      color:
+        colors.textMuted,
+      fontSize: 12,
+      marginBottom: 3,
+    },
+
+    transferInfoValue: {
+      color:
+        colors.textPrimary,
+      fontSize: 15,
+      fontWeight: "700",
+    },
+
+    transferButton: {
+      minHeight: 52,
+      borderRadius:
+        radius.md,
+      backgroundColor:
+        colors.primary,
+      flexDirection: "row",
+      alignItems:
+        "center",
+      justifyContent:
+        "center",
+      gap: 8,
+    },
+
+    transferButtonText: {
+      color: "#FFFFFF",
+      fontSize: 15,
+      fontWeight: "800",
+    },
+
+    /* --------------------------------------------------------
+       TRANSFER HISTORY
+    -------------------------------------------------------- */
+
+    transferHistoryCard: {
+      backgroundColor:
+        colors.card,
+      borderWidth: 1,
+      borderColor:
+        colors.cardBorder,
+      borderRadius:
+        radius.md,
+      paddingHorizontal:
+        spacing.md,
+    },
+
+    transferHistoryRow: {
+      flexDirection: "row",
+      alignItems:
+        "center",
+      minHeight: 72,
+      borderBottomWidth: 1,
+      borderBottomColor:
+        colors.cardBorder,
+    },
+
+    transferHistoryIcon: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      backgroundColor:
+        colors.primarySoft,
+      justifyContent:
+        "center",
+      alignItems:
+        "center",
+      marginRight:
+        spacing.sm,
+    },
+
+    transferHistoryContent: {
+      flex: 1,
+    },
+
+    transferHistoryTitle: {
+      color:
+        colors.textPrimary,
+      fontSize: 14,
+      fontWeight: "700",
+    },
+
+    transferHistoryReason: {
+      color:
+        colors.textSecondary,
+      fontSize: 12,
+      marginTop: 3,
+    },
+
+    transferHistoryDate: {
+      color:
+        colors.textMuted,
+      fontSize: 11,
+      marginTop: 3,
+    },
+
+    /* --------------------------------------------------------
+       TRANSFER MODAL
+    -------------------------------------------------------- */
+
+    transferModalOverlay: {
+      flex: 1,
+      backgroundColor:
+        "rgba(0,0,0,0.65)",
+      justifyContent:
+        "flex-end",
+    },
+
+    transferModalContainer: {
+      backgroundColor:
+        colors.card,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      paddingHorizontal:
+        spacing.lg,
+      paddingTop: spacing.lg,
+      paddingBottom:
+        spacing.xl,
+      maxHeight: "92%",
+      borderWidth: 1,
+      borderColor:
+        colors.cardBorder,
+    },
+
+    transferModalHeader: {
+      flexDirection: "row",
+      alignItems:
+        "center",
+      justifyContent:
+        "space-between",
+      marginBottom:
+        spacing.md,
+    },
+
+    transferModalTitleRow: {
+      flexDirection: "row",
+      alignItems:
+        "center",
+      flex: 1,
+    },
+
+    transferModalIcon: {
+      width: 46,
+      height: 46,
+      borderRadius: 23,
+      backgroundColor:
+        colors.primarySoft,
+      justifyContent:
+        "center",
+      alignItems:
+        "center",
+      marginRight:
+        spacing.sm,
+    },
+
+    transferModalTitleContent: {
+      flex: 1,
+    },
+
+    transferModalTitle: {
+      color:
+        colors.textPrimary,
+      fontSize: 19,
+      fontWeight: "800",
+    },
+
+    transferModalPlayer: {
+      color:
+        colors.textSecondary,
+      fontSize: 13,
+      marginTop: 2,
+    },
+
+    transferCloseButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor:
+        colors.bg,
+      justifyContent:
+        "center",
+      alignItems:
+        "center",
+    },
+
+    currentCategoryCard: {
+      backgroundColor:
+        colors.bg,
+      borderRadius:
+        radius.md,
+      padding:
+        spacing.md,
+      borderWidth: 1,
+      borderColor:
+        colors.cardBorder,
+      marginBottom:
+        spacing.md,
+    },
+
+    currentCategoryLabel: {
+      color:
+        colors.textMuted,
+      fontSize: 11,
+      marginBottom: 4,
+    },
+
+    currentCategoryValue: {
+      color:
+        colors.textPrimary,
+      fontSize: 15,
+      fontWeight: "700",
+    },
+
+    transferSectionLabel: {
+      color:
+        colors.textPrimary,
+      fontSize: 14,
+      fontWeight: "700",
+      marginBottom: spacing.sm,
+    },
+
+    optionalText: {
+      color:
+        colors.textMuted,
+      fontWeight: "400",
+    },
+
+    categoryLoading: {
+      minHeight: 100,
+      alignItems:
+        "center",
+      justifyContent:
+        "center",
+      flexDirection:
+        "row",
+      gap: 8,
+    },
+
+    categoryLoadingText: {
+      color:
+        colors.textSecondary,
+      fontSize: 13,
+    },
+
+    noCategoryBox: {
+      minHeight: 100,
+      alignItems:
+        "center",
+      justifyContent:
+        "center",
+      gap: 8,
+    },
+
+    noCategoryText: {
+      color:
+        colors.textMuted,
+      fontSize: 13,
+    },
+
+    categoryList: {
+      maxHeight: 220,
+      marginBottom:
+        spacing.md,
+    },
+
+    categoryOption: {
+      minHeight: 54,
+      borderWidth: 1,
+      borderColor:
+        colors.cardBorder,
+      borderRadius:
+        radius.md,
+      backgroundColor:
+        colors.bg,
+      flexDirection: "row",
+      alignItems:
+        "center",
+      justifyContent:
+        "space-between",
+      paddingHorizontal:
+        spacing.md,
+      marginBottom:
+        spacing.sm,
+    },
+
+    categoryOptionCurrent: {
+      opacity: 0.65,
+      borderColor:
+        colors.present,
+    },
+
+    categoryOptionSelected: {
+      borderColor:
+        colors.primary,
+      backgroundColor:
+        colors.primarySoft,
+    },
+
+    categoryOptionLeft: {
+      flexDirection: "row",
+      alignItems:
+        "center",
+      flex: 1,
+    },
+
+    categoryRadio: {
+      width: 22,
+      height: 22,
+      borderRadius: 11,
+      borderWidth: 2,
+      borderColor:
+        colors.textMuted,
+      alignItems:
+        "center",
+      justifyContent:
+        "center",
+      marginRight:
+        spacing.sm,
+    },
+
+    categoryRadioSelected: {
+      borderColor:
+        colors.primary,
+    },
+
+    categoryRadioCurrent: {
+      borderColor:
+        colors.present,
+    },
+
+    categoryRadioDot: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      backgroundColor:
+        colors.primary,
+    },
+
+    categoryName: {
+      color:
+        colors.textPrimary,
+      fontSize: 14,
+      fontWeight: "600",
+    },
+
+    categoryNameCurrent: {
+      color:
+        colors.present,
+    },
+
+    currentCategorySmall: {
+      color:
+        colors.textMuted,
+      fontSize: 10,
+      marginTop: 2,
+    },
+
+    reasonInput: {
+      minHeight: 72,
+      maxHeight: 100,
+      borderWidth: 1,
+      borderColor:
+        colors.cardBorder,
+      borderRadius:
+        radius.md,
+      backgroundColor:
+        colors.bg,
+      color:
+        colors.textPrimary,
+      paddingHorizontal:
+        spacing.md,
+      paddingVertical:
+        spacing.sm,
+      fontSize: 13,
+      textAlignVertical:
+        "top",
+      marginBottom: 3,
+    },
+
+    characterCount: {
+      color:
+        colors.textMuted,
+      fontSize: 10,
+      textAlign:
+        "right",
+      marginBottom:
+        spacing.md,
+    },
+
+    transferModalButtons: {
+      flexDirection:
+        "row",
+      gap: 10,
+    },
+
+    transferCancelButton: {
+      flex: 1,
+      minHeight: 50,
+      borderRadius:
+        radius.md,
+      backgroundColor:
+        colors.bg,
+      justifyContent:
+        "center",
+      alignItems:
+        "center",
+    },
+
+    transferCancelText: {
+      color:
+        colors.textSecondary,
+      fontSize: 14,
+      fontWeight: "700",
+    },
+
+    transferConfirmButton: {
+      flex: 1,
+      minHeight: 50,
+      borderRadius:
+        radius.md,
+      backgroundColor:
+        colors.primary,
+      justifyContent:
+        "center",
+      alignItems:
+        "center",
+      flexDirection:
+        "row",
+      gap: 7,
+    },
+
+    transferConfirmDisabled: {
+      opacity: 0.45,
+    },
+
+    transferConfirmText: {
+      color: "#FFFFFF",
+      fontSize: 14,
+      fontWeight: "800",
+    },
+
+    /* --------------------------------------------------------
+       HEALTH
+    -------------------------------------------------------- */
 
     healthBox: {
       backgroundColor:
         colors.card,
-
       borderWidth: 1,
-
       borderColor:
         colors.cardBorder,
-
       borderRadius:
         radius.md,
-
       padding:
         spacing.md,
     },
@@ -2137,45 +3419,34 @@ const styles =
     healthText: {
       color:
         colors.textSecondary,
-
       fontSize: 14,
-
       lineHeight: 21,
     },
 
-    /* -------------------------------------------------------- */
-    /* ATTENDANCE */
-    /* -------------------------------------------------------- */
+    /* --------------------------------------------------------
+       ATTENDANCE
+    -------------------------------------------------------- */
 
     attendanceCards: {
       flexDirection:
         "row",
-
       gap: spacing.sm,
     },
 
     statCard: {
       flex: 1,
-
       minHeight: 100,
-
       backgroundColor:
         colors.card,
-
       borderWidth: 1,
-
       borderColor:
         colors.cardBorder,
-
       borderRadius:
         radius.md,
-
       justifyContent:
         "center",
-
       alignItems:
         "center",
-
       padding:
         spacing.sm,
     },
@@ -2183,22 +3454,16 @@ const styles =
     statValue: {
       color:
         colors.textPrimary,
-
       fontSize: 22,
-
       fontWeight: "800",
-
       marginTop: 7,
     },
 
     statLabel: {
       color:
         colors.textMuted,
-
       fontSize: 11,
-
       marginTop: 3,
-
       textAlign:
         "center",
     },
@@ -2206,18 +3471,13 @@ const styles =
     percentageBox: {
       marginTop:
         spacing.sm,
-
       backgroundColor:
         colors.card,
-
       borderWidth: 1,
-
       borderColor:
         colors.cardBorder,
-
       borderRadius:
         radius.md,
-
       padding:
         spacing.md,
     },
@@ -2225,13 +3485,10 @@ const styles =
     percentageHeader: {
       flexDirection:
         "row",
-
       justifyContent:
         "space-between",
-
       alignItems:
         "center",
-
       marginBottom:
         spacing.sm,
     },
@@ -2239,73 +3496,56 @@ const styles =
     percentageLabel: {
       color:
         colors.textSecondary,
-
       fontSize: 13,
     },
 
     percentageValue: {
       color:
         colors.textPrimary,
-
       fontSize: 16,
-
       fontWeight: "800",
     },
 
     progressBackground: {
       height: 8,
-
       backgroundColor:
         colors.bg,
-
       borderRadius: 4,
-
       overflow: "hidden",
     },
 
     progressFill: {
       height: "100%",
-
       backgroundColor:
         colors.present,
-
       borderRadius: 4,
     },
 
-    /* -------------------------------------------------------- */
-    /* ATTENDANCE HISTORY */
-    /* -------------------------------------------------------- */
+    /* --------------------------------------------------------
+       ATTENDANCE HISTORY
+    -------------------------------------------------------- */
 
     historyCard: {
       backgroundColor:
         colors.card,
-
       borderWidth: 1,
-
       borderColor:
         colors.cardBorder,
-
       borderRadius:
         radius.md,
-
       paddingHorizontal:
         spacing.md,
     },
 
     attendanceRow: {
       minHeight: 55,
-
       flexDirection:
         "row",
-
       alignItems:
         "center",
-
       justifyContent:
         "space-between",
-
       borderBottomWidth: 1,
-
       borderBottomColor:
         colors.cardBorder,
     },
@@ -2313,76 +3553,58 @@ const styles =
     dateContainer: {
       flexDirection:
         "row",
-
       alignItems:
         "center",
-
       gap: 8,
     },
 
     dateText: {
       color:
         colors.textSecondary,
-
       fontSize: 13,
     },
 
     attendanceBadge: {
       flexDirection:
         "row",
-
       alignItems:
         "center",
-
       gap: 5,
-
       paddingHorizontal: 9,
-
       paddingVertical: 5,
-
       borderRadius: 12,
     },
 
     attendanceBadgeText: {
       fontSize: 11,
-
       fontWeight: "700",
     },
 
-    /* -------------------------------------------------------- */
-    /* FEES */
-    /* -------------------------------------------------------- */
+    /* --------------------------------------------------------
+       FEES
+    -------------------------------------------------------- */
 
     feeCard: {
       backgroundColor:
         colors.card,
-
       borderWidth: 1,
-
       borderColor:
         colors.cardBorder,
-
       borderRadius:
         radius.md,
-
       paddingHorizontal:
         spacing.md,
     },
 
     feeRow: {
       minHeight: 65,
-
       flexDirection:
         "row",
-
       alignItems:
         "center",
-
       justifyContent:
         "space-between",
-
       borderBottomWidth: 1,
-
       borderBottomColor:
         colors.cardBorder,
     },
@@ -2394,18 +3616,14 @@ const styles =
     feeMonth: {
       color:
         colors.textPrimary,
-
       fontSize: 14,
-
       fontWeight: "600",
     },
 
     feeDate: {
       color:
         colors.textMuted,
-
       fontSize: 11,
-
       marginTop: 3,
     },
 
@@ -2417,52 +3635,40 @@ const styles =
     feeAmount: {
       color:
         colors.textPrimary,
-
       fontSize: 15,
-
       fontWeight: "700",
     },
 
     feeStatus: {
       fontSize: 11,
-
       fontWeight: "700",
-
       marginTop: 2,
     },
 
     emptyText: {
       color:
         colors.textMuted,
-
       fontSize: 13,
-
       textAlign:
         "center",
-
       paddingVertical:
         spacing.lg,
     },
 
-    /* -------------------------------------------------------- */
-    /* PLAYER STATUS */
-    /* -------------------------------------------------------- */
+    /* --------------------------------------------------------
+       PLAYER STATUS
+    -------------------------------------------------------- */
 
     statusCard: {
       backgroundColor:
         colors.card,
-
       borderWidth: 1,
-
       borderColor:
         colors.cardBorder,
-
       borderRadius:
         radius.md,
-
       padding:
         spacing.md,
-
       marginBottom:
         spacing.sm,
     },
@@ -2470,7 +3676,6 @@ const styles =
     statusLeft: {
       flexDirection:
         "row",
-
       alignItems:
         "center",
     },
@@ -2478,9 +3683,7 @@ const styles =
     statusDot: {
       width: 12,
       height: 12,
-
       borderRadius: 6,
-
       marginRight:
         spacing.sm,
     },
@@ -2488,42 +3691,30 @@ const styles =
     statusLabel: {
       color:
         colors.textMuted,
-
       fontSize: 12,
-
       marginBottom: 3,
     },
 
     statusValue: {
       fontSize: 15,
-
       fontWeight: "800",
     },
 
     deactivatePlayerButton: {
       minHeight: 50,
-
       borderRadius:
         radius.md,
-
       borderWidth: 1,
-
       borderColor: "#F59E0B",
-
       backgroundColor:
         "#FFF7ED",
-
       flexDirection:
         "row",
-
       alignItems:
         "center",
-
       justifyContent:
         "center",
-
       gap: 8,
-
       marginTop:
         spacing.sm,
     },
@@ -2531,37 +3722,25 @@ const styles =
     deactivatePlayerText: {
       color:
         "#D97706",
-
       fontSize: 14,
-
       fontWeight: "700",
     },
 
     activatePlayerButton: {
       minHeight: 50,
-
       borderRadius:
         radius.md,
-
       borderWidth: 1,
-
-      borderColor:
-        "#22C55E",
-
+      borderColor: "#22C55E",
       backgroundColor:
         "#F0FDF4",
-
       flexDirection:
         "row",
-
       alignItems:
         "center",
-
       justifyContent:
         "center",
-
       gap: 8,
-
       marginTop:
         spacing.sm,
     },
@@ -2569,37 +3748,25 @@ const styles =
     activatePlayerText: {
       color:
         "#16A34A",
-
       fontSize: 14,
-
       fontWeight: "700",
     },
 
     deletePlayerButton: {
       minHeight: 50,
-
       borderRadius:
         radius.md,
-
       borderWidth: 1,
-
-      borderColor:
-        "#EF4444",
-
+      borderColor: "#EF4444",
       backgroundColor:
         "#FEF2F2",
-
       flexDirection:
         "row",
-
       alignItems:
         "center",
-
       justifyContent:
         "center",
-
       gap: 8,
-
       marginTop:
         spacing.sm,
     },
@@ -2607,45 +3774,33 @@ const styles =
     deletePlayerText: {
       color:
         "#EF4444",
-
       fontSize: 14,
-
       fontWeight: "700",
     },
 
-    /* -------------------------------------------------------- */
-    /* STATUS MODAL */
-    /* -------------------------------------------------------- */
+    /* --------------------------------------------------------
+       STATUS MODAL
+    -------------------------------------------------------- */
 
     modalOverlay: {
       flex: 1,
-
       backgroundColor:
         "rgba(0,0,0,0.60)",
-
       justifyContent:
         "center",
-
       alignItems:
         "center",
-
       paddingHorizontal: 20,
     },
 
     modalContainer: {
       width: "100%",
-
       maxWidth: 420,
-
       backgroundColor:
         colors.card,
-
       borderRadius: 20,
-
       padding: 22,
-
       borderWidth: 1,
-
       borderColor:
         colors.cardBorder,
     },
@@ -2653,21 +3808,15 @@ const styles =
     modalIcon: {
       width: 58,
       height: 58,
-
       borderRadius: 29,
-
       backgroundColor:
         "#FFF7ED",
-
       alignItems:
         "center",
-
       justifyContent:
         "center",
-
       alignSelf:
         "center",
-
       marginBottom: 14,
     },
 
@@ -2679,65 +3828,47 @@ const styles =
     modalTitle: {
       color:
         colors.textPrimary,
-
       fontSize: 20,
-
       fontWeight: "800",
-
       textAlign:
         "center",
-
       marginBottom: 8,
     },
 
     modalPlayerName: {
       color:
         colors.primary,
-
       fontSize: 16,
-
       fontWeight: "700",
-
       textAlign:
         "center",
-
       marginBottom: 12,
     },
 
     modalMessage: {
       color:
         colors.textSecondary,
-
       fontSize: 14,
-
       lineHeight: 21,
-
       textAlign:
         "center",
-
       marginBottom: 22,
     },
 
     modalButtons: {
       flexDirection:
         "row",
-
       gap: 10,
     },
 
     modalCancelButton: {
       flex: 1,
-
       minHeight: 48,
-
       borderRadius: 11,
-
       backgroundColor:
         colors.bg,
-
       alignItems:
         "center",
-
       justifyContent:
         "center",
     },
@@ -2745,22 +3876,16 @@ const styles =
     modalCancelText: {
       color:
         colors.textSecondary,
-
       fontSize: 14,
-
       fontWeight: "700",
     },
 
     modalConfirmButton: {
       flex: 1,
-
       minHeight: 48,
-
       borderRadius: 11,
-
       alignItems:
         "center",
-
       justifyContent:
         "center",
     },
@@ -2782,11 +3907,8 @@ const styles =
 
     modalConfirmText: {
       color: "#FFFFFF",
-
       fontSize: 14,
-
       fontWeight: "700",
-
       textAlign:
         "center",
     },
