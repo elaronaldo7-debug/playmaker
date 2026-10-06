@@ -15,33 +15,37 @@ export const TOKEN_KEY = "playmaker_fc_token";
 
 let onUnauthorized: (() => void) | null = null;
 
-/* =========================================================
-   UNAUTHORIZED HANDLER
-========================================================= */
-
 export function setUnauthorizedHandler(handler: () => void) {
   onUnauthorized = handler;
 }
 
-/* =========================================================
-   TOKEN STORAGE
-========================================================= */
+// ===============================
+// SAVE TOKEN
+// ===============================
 
 export async function saveToken(token: string) {
   try {
     if (Platform.OS === "web") {
       localStorage.setItem(TOKEN_KEY, token);
+
       console.log("TOKEN SAVED - WEB");
+
       return;
     }
 
     await SecureStore.setItemAsync(TOKEN_KEY, token);
+
     console.log("TOKEN SAVED - SECURE STORE");
   } catch (error) {
     console.error("SAVE TOKEN ERROR:", error);
+
     throw error;
   }
 }
+
+// ===============================
+// GET TOKEN
+// ===============================
 
 export async function getToken(): Promise<string | null> {
   try {
@@ -53,77 +57,76 @@ export async function getToken(): Promise<string | null> {
       token = await SecureStore.getItemAsync(TOKEN_KEY);
     }
 
-    console.log("GET TOKEN:", token ? "FOUND" : "NOT FOUND");
+    console.log(
+      "GET TOKEN:",
+      token ? "FOUND" : "NOT FOUND"
+    );
 
     return token;
   } catch (error) {
     console.error("GET TOKEN ERROR:", error);
+
     return null;
   }
 }
+
+// ===============================
+// CLEAR TOKEN
+// ===============================
 
 export async function clearToken() {
   try {
     if (Platform.OS === "web") {
       localStorage.removeItem(TOKEN_KEY);
+
       console.log("TOKEN CLEARED - WEB");
+
       return;
     }
 
     await SecureStore.deleteItemAsync(TOKEN_KEY);
+
     console.log("TOKEN CLEARED - SECURE STORE");
   } catch (error) {
     console.error("CLEAR TOKEN ERROR:", error);
   }
 }
 
-/* =========================================================
-   AXIOS INSTANCE
-========================================================= */
+// ===============================
+// AXIOS INSTANCE
+// ===============================
 
 export const api: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
   timeout: 15000,
 });
 
-/* =========================================================
-   REQUEST INTERCEPTOR
-========================================================= */
+// ===============================
+// REQUEST INTERCEPTOR
+// ===============================
 
 api.interceptors.request.use(
   async (config) => {
     const token = await getToken();
 
-    console.log(
-      "--------------------------------"
-    );
-
+    console.log("--------------------------------");
     console.log(
       "API REQUEST:",
       config.method?.toUpperCase(),
       `${config.baseURL}${config.url}`
     );
 
-    console.log(
-      "TOKEN EXISTS:",
-      !!token
-    );
+    console.log("TOKEN EXISTS:", !!token);
 
     if (token) {
       config.headers = config.headers ?? {};
 
-      /*
-       * AxiosHeaders support
-       */
       if (typeof config.headers.set === "function") {
         config.headers.set(
           "Authorization",
           `Bearer ${token}`
         );
       } else {
-        /*
-         * Normal object headers
-         */
         config.headers.Authorization =
           `Bearer ${token}`;
       }
@@ -137,13 +140,10 @@ api.interceptors.request.use(
       );
     }
 
-    console.log(
-      "--------------------------------"
-    );
+    console.log("--------------------------------");
 
     return config;
   },
-
   (error) => {
     console.error(
       "REQUEST INTERCEPTOR ERROR:",
@@ -154,9 +154,9 @@ api.interceptors.request.use(
   }
 );
 
-/* =========================================================
-   BACKEND RESPONSE ENVELOPE
-========================================================= */
+// ===============================
+// API RESPONSE ENVELOPE
+// ===============================
 
 interface Envelope<T> {
   success: boolean;
@@ -175,16 +175,13 @@ function isEnvelope(
   );
 }
 
-/* =========================================================
-   RESPONSE INTERCEPTOR
-========================================================= */
+// ===============================
+// RESPONSE INTERCEPTOR
+// ===============================
 
 api.interceptors.response.use(
   (response) => {
-    console.log(
-      "================================"
-    );
-
+    console.log("================================");
     console.log(
       "API RESPONSE:",
       response.status
@@ -200,39 +197,20 @@ api.interceptors.response.use(
       response.data
     );
 
-    console.log(
-      "================================"
-    );
-
-    /*
-     * Backend response:
-     *
-     * {
-     *   success: true,
-     *   data: {...}
-     * }
-     *
-     * Convert it to:
-     *
-     * {...}
-     */
+    console.log("================================");
 
     if (
       isEnvelope(response.data) &&
       response.data.success
     ) {
-      response.data =
-        response.data.data;
+      response.data = response.data.data;
     }
 
     return response;
   },
 
   async (error: AxiosError) => {
-    console.log(
-      "================================"
-    );
-
+    console.log("================================");
     console.log(
       "API ERROR:",
       error.message
@@ -253,22 +231,16 @@ api.interceptors.response.use(
       error.response?.data
     );
 
-    console.log(
-      "================================"
-    );
+    console.log("================================");
 
-    /*
-     * Unauthorized
-     */
+    // IMPORTANT:
+    // Do NOT clear token automatically.
+    // Token should be cleared only by manual Logout.
 
-    if (
-      error.response?.status === 401
-    ) {
+    if (error.response?.status === 401) {
       console.log(
-        "401 UNAUTHORIZED - CLEARING TOKEN"
+        "401 UNAUTHORIZED - TOKEN NOT CLEARED"
       );
-
-      await clearToken();
 
       if (onUnauthorized) {
         onUnauthorized();
@@ -279,9 +251,9 @@ api.interceptors.response.use(
   }
 );
 
-/* =========================================================
-   ERROR MESSAGE
-========================================================= */
+// ===============================
+// API ERROR MESSAGE
+// ===============================
 
 export function apiErrorMessage(
   error: unknown,
@@ -309,9 +281,5 @@ export function apiErrorMessage(
 
   return fallback;
 }
-
-/* =========================================================
-   DEFAULT EXPORT
-========================================================= */
 
 export default api;
