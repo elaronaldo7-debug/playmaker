@@ -81,14 +81,11 @@ export function AuthProvider({
     try {
       await api.post("/auth/logout");
     } catch {
-      // Ignore logout API errors.
-      // Local logout should still continue.
+      // Ignore API logout errors.
+      // Local logout must still continue.
     }
 
-    /*
-     * Token is cleared ONLY when the user
-     * manually logs out.
-     */
+    // Token is cleared ONLY on manual logout.
     await clearToken();
 
     setUser(null);
@@ -102,43 +99,112 @@ export function AuthProvider({
   // ==================================================
 
   const refreshUser = useCallback(async () => {
+    console.log("================================");
+    console.log("AUTH STARTUP CHECK");
+    console.log("================================");
+
     const token = await getToken();
 
-    // No saved token -> user must login.
+    // --------------------------------------------------
+    // NO TOKEN
+    // --------------------------------------------------
+
     if (!token) {
+      console.log(
+        "AUTH STARTUP: NO TOKEN"
+      );
+
       setUser(null);
       setIsLoading(false);
+
       return;
     }
 
+    console.log(
+      "AUTH STARTUP: TOKEN FOUND"
+    );
+
+    // --------------------------------------------------
+    // TOKEN EXISTS
+    // --------------------------------------------------
+
     try {
       const response =
-        await api.get<AuthUser>("/auth/me");
+        await api.get<AuthUser>(
+          "/auth/me"
+        );
 
-      setUser(response.data);
-    } catch (error) {
       console.log(
-        "AUTH ME ERROR:",
+        "AUTH STARTUP: /auth/me SUCCESS"
+      );
+
+      console.log(
+        "AUTH USER:",
+        response.data
+      );
+
+      setUser(
+        response.data
+      );
+    } catch (error: any) {
+      console.log(
+        "AUTH STARTUP /auth/me ERROR:",
         error
       );
 
-      /*
-       * IMPORTANT:
-       *
-       * Do NOT clear the saved token here.
-       *
-       * Render may be sleeping, network may be
-       * temporarily unavailable, or the request
-       * may timeout.
-       *
-       * Keeping the token prevents the user from
-       * being forced to login again because of a
-       * temporary server/network problem.
-       */
+      const status =
+        error?.response?.status;
 
-      setUser(null);
+      // ------------------------------------------------
+      // IMPORTANT
+      //
+      // Do NOT clear the token because of:
+      // - Render cold start
+      // - Internet delay
+      // - timeout
+      // - temporary server error
+      // ------------------------------------------------
+
+      if (status !== 401) {
+        console.log(
+          "AUTH STARTUP: TEMPORARY ERROR"
+        );
+
+        console.log(
+          "TOKEN WILL BE KEPT"
+        );
+
+        /*
+         * We don't know the user object if /auth/me
+         * failed, so don't invent one.
+         *
+         * The saved token remains untouched.
+         */
+        setUser(null);
+      } else {
+        // ------------------------------------------------
+        // 401
+        //
+        // Do NOT delete token automatically.
+        // The API interceptor also keeps the token.
+        // ------------------------------------------------
+
+        console.log(
+          "AUTH STARTUP: 401 RECEIVED"
+        );
+
+        console.log(
+          "TOKEN NOT CLEARED"
+        );
+
+        setUser(null);
+      }
     } finally {
       setIsLoading(false);
+
+      console.log(
+        "AUTH STARTUP CHECK COMPLETE"
+      );
     }
   }, []);
 
@@ -148,14 +214,20 @@ export function AuthProvider({
 
   useEffect(() => {
     setUnauthorizedHandler(() => {
+      console.log(
+        "UNAUTHORIZED HANDLER CALLED"
+      );
+
       /*
-       * Do not clear the token here.
+       * IMPORTANT:
        *
-       * The token should only be removed by
-       * the manual logout function.
+       * Never clear token here.
+       *
+       * Token is removed only by manual logout.
        */
 
       setUser(null);
+
       router.replace("/login");
     });
 
@@ -164,16 +236,6 @@ export function AuthProvider({
 
   // ==================================================
   // LOGIN
-  //
-  // FIXED: the backend's /auth/login response key is
-  // read defensively as EITHER "access_token" OR
-  // "token" -- whichever the backend actually sends.
-  // Previously this only checked "access_token"; if
-  // the backend returned "token" instead, accessToken
-  // was always undefined, the function threw before
-  // saveToken()/setUser() ever ran, and the user was
-  // silently kept on the login screen forever (the
-  // "asks to login every time" symptom).
   // ==================================================
 
   const login = useCallback(
@@ -185,8 +247,16 @@ export function AuthProvider({
 
       try {
         console.log(
+          "================================"
+        );
+
+        console.log(
           "LOGIN START:",
           username
+        );
+
+        console.log(
+          "================================"
         );
 
         const response =
@@ -194,17 +264,23 @@ export function AuthProvider({
             access_token?: string;
             token?: string;
             user: AuthUser;
-          }>("/auth/login", {
-            username,
-            password,
-          });
+          }>(
+            "/auth/login",
+            {
+              username,
+              password,
+            }
+          );
 
         console.log(
           "LOGIN API RESPONSE:",
           response.data
         );
 
-        // Accept whichever key the backend actually sends.
+        // ------------------------------------------------
+        // Accept either token name
+        // ------------------------------------------------
+
         const accessToken =
           response.data?.access_token ||
           response.data?.token;
@@ -212,14 +288,19 @@ export function AuthProvider({
         const loggedInUser =
           response.data?.user;
 
+        // ------------------------------------------------
+        // TOKEN CHECK
+        // ------------------------------------------------
+
         if (!accessToken) {
           throw new Error(
-            "Login succeeded but no token was returned. " +
-              "Check that the backend's /auth/login response " +
-              "key (access_token vs token) matches what the " +
-              "app expects."
+            "Login succeeded but no token was returned."
           );
         }
+
+        // ------------------------------------------------
+        // USER CHECK
+        // ------------------------------------------------
 
         if (!loggedInUser) {
           throw new Error(
@@ -227,16 +308,22 @@ export function AuthProvider({
           );
         }
 
-        // Save token in SecureStore (native) / localStorage (web).
+        // ------------------------------------------------
+        // SAVE TOKEN
+        // ------------------------------------------------
+
         await saveToken(
           accessToken
         );
 
         console.log(
-          "TOKEN SAVED"
+          "TOKEN SAVED SUCCESSFULLY"
         );
 
-        // Set authenticated user.
+        // ------------------------------------------------
+        // SET USER
+        // ------------------------------------------------
+
         setUser(
           loggedInUser
         );
@@ -245,6 +332,10 @@ export function AuthProvider({
           "USER SET:",
           loggedInUser
         );
+
+        // ------------------------------------------------
+        // GO DASHBOARD
+        // ------------------------------------------------
 
         router.replace(
           "/dashboard"
