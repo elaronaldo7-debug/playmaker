@@ -83,6 +83,10 @@ export default function SettingsScreen() {
     router.push("/settings/profile");
   };
 
+  const handleChangePassword = () => {
+    router.push("/settings/password");
+  };
+
   const handleAcademyInfo = () => {
     router.push("/settings/academy");
   };
@@ -118,7 +122,6 @@ export default function SettingsScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
       >
-
         {/* ======================================================
             ACCOUNT
         ====================================================== */}
@@ -131,6 +134,15 @@ export default function SettingsScreen() {
             title="Profile"
             subtitle="View and manage your account"
             onPress={handleProfile}
+          />
+
+          <View style={styles.divider} />
+
+          <SettingItem
+            icon="lock-closed-outline"
+            title="Change Password"
+            subtitle="Update your account password"
+            onPress={handleChangePassword}
           />
         </View>
 
@@ -164,7 +176,6 @@ export default function SettingsScreen() {
             <SectionTitle title="Administration" />
 
             <View style={styles.card}>
-
               <SettingItem
                 icon="people-outline"
                 title="Coaches"
@@ -189,7 +200,6 @@ export default function SettingsScreen() {
                 subtitle="Backup academy data and export reports"
                 onPress={handleBackup}
               />
-
             </View>
           </>
         )}
@@ -202,7 +212,6 @@ export default function SettingsScreen() {
         <SectionTitle title="App" />
 
         <View style={styles.card}>
-
           <SettingItem
             icon="notifications-outline"
             title="Notifications"
@@ -218,7 +227,6 @@ export default function SettingsScreen() {
             subtitle="Playmaker FC app information"
             onPress={handleAbout}
           />
-
         </View>
 
         {/* ======================================================
@@ -226,7 +234,6 @@ export default function SettingsScreen() {
         ====================================================== */}
 
         <View style={styles.accountCard}>
-
           <View style={styles.accountIcon}>
             <Ionicons
               name={
@@ -240,7 +247,6 @@ export default function SettingsScreen() {
           </View>
 
           <View style={styles.accountInfo}>
-
             <Text style={styles.accountName}>
               {user?.username || "User"}
             </Text>
@@ -250,9 +256,7 @@ export default function SettingsScreen() {
                 ? "Administrator"
                 : "Coach"}
             </Text>
-
           </View>
-
         </View>
 
         {/* ======================================================
@@ -262,14 +266,12 @@ export default function SettingsScreen() {
         <Text style={styles.version}>
           Playmaker FC • Version 1.0.0
         </Text>
-
       </ScrollView>
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-
   content: {
     paddingHorizontal: spacing.lg,
     paddingBottom: 110,
@@ -378,5 +380,4 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
     marginBottom: spacing.lg,
   },
-
 });

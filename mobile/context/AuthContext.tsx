@@ -164,6 +164,16 @@ export function AuthProvider({
 
   // ==================================================
   // LOGIN
+  //
+  // FIXED: the backend's /auth/login response key is
+  // read defensively as EITHER "access_token" OR
+  // "token" -- whichever the backend actually sends.
+  // Previously this only checked "access_token"; if
+  // the backend returned "token" instead, accessToken
+  // was always undefined, the function threw before
+  // saveToken()/setUser() ever ran, and the user was
+  // silently kept on the login screen forever (the
+  // "asks to login every time" symptom).
   // ==================================================
 
   const login = useCallback(
@@ -181,7 +191,8 @@ export function AuthProvider({
 
         const response =
           await api.post<{
-            access_token: string;
+            access_token?: string;
+            token?: string;
             user: AuthUser;
           }>("/auth/login", {
             username,
@@ -193,15 +204,20 @@ export function AuthProvider({
           response.data
         );
 
+        // Accept whichever key the backend actually sends.
         const accessToken =
-          response.data?.access_token;
+          response.data?.access_token ||
+          response.data?.token;
 
         const loggedInUser =
           response.data?.user;
 
         if (!accessToken) {
           throw new Error(
-            "Login succeeded but access token was not returned."
+            "Login succeeded but no token was returned. " +
+              "Check that the backend's /auth/login response " +
+              "key (access_token vs token) matches what the " +
+              "app expects."
           );
         }
 
@@ -211,7 +227,7 @@ export function AuthProvider({
           );
         }
 
-        // Save token in SecureStore.
+        // Save token in SecureStore (native) / localStorage (web).
         await saveToken(
           accessToken
         );
