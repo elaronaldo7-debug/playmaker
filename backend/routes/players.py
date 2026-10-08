@@ -12,7 +12,6 @@ from extensions import db
 from models.player import Player
 from models.category import Category
 from models.player_transfer import PlayerTransfer
-from models.user import User
 
 from utils.auth import (
     require_auth,
@@ -152,75 +151,6 @@ def parse_monthly_fee(value):
 
 
 # =========================================================
-# PLAYER LOGIN HELPERS
-# =========================================================
-
-def get_player_login_credentials(player):
-    """
-    Generate the standard PLAYER login credentials.
-
-    Username:
-        Player ID
-
-    Password:
-        PLAY + Player ID
-    """
-    username = player.player_id.strip()
-    password = f"PLAY{player.player_id.strip()}"
-    return username, password
-
-
-def create_or_reset_player_login(player):
-    """
-    Create a PLAYER login if one does not exist.
-
-    If the player already has a linked login, reset it to the
-    standard academy credentials.
-
-    Returns:
-        (user, username, password)
-    """
-    username, password = get_player_login_credentials(player)
-
-    existing_username_user = (
-        User.query
-        .filter_by(username=username)
-        .first()
-    )
-
-    if existing_username_user and existing_username_user.player is not player:
-        raise ValueError(
-            "The Player ID is already being used by another user account"
-        )
-
-    user = player.user
-
-    if user is None:
-        if existing_username_user:
-            raise ValueError(
-                "A user account already exists for this Player ID"
-            )
-
-        user = User(
-            username=username,
-            role=User.ROLE_PLAYER,
-            is_active=True,
-        )
-
-        db.session.add(user)
-        player.user = user
-
-    else:
-        user.username = username
-        user.role = User.ROLE_PLAYER
-        user.is_active = True
-
-    user.set_password(password)
-
-    return user, username, password
-
-
-# =========================================================
 # GET CURRENT PLAYER PROFILE
 # =========================================================
 #
@@ -258,9 +188,6 @@ def get_my_player_profile():
         include_summary=False
     )
 
-    # PLAYER accounts must never receive fee information.
-    data.pop("monthly_fee", None)
-
     return jsonify(data), 200
 
 
@@ -272,7 +199,7 @@ def get_my_player_profile():
     "",
     methods=["GET"]
 )
-@require_coach_or_admin
+@require_auth
 def list_players():
 
     query = Player.query
@@ -391,7 +318,7 @@ def list_players():
     "/<int:player_id>",
     methods=["GET"]
 )
-@require_coach_or_admin
+@require_auth
 def get_player(player_id):
 
     player = Player.query.get_or_404(
@@ -420,97 +347,6 @@ def get_player(player_id):
     return jsonify(
         data
     )
-
-
-# =========================================================
-# CREATE PLAYER LOGIN
-# =========================================================
-#
-# POST /api/players/<player_id>/login
-#
-# ADMIN ONLY.
-#
-# Body:
-#
-# {
-#     "username": "player001",
-#     "password": "password123"
-# }
-#
-# One Player can have only one login account.
-#
-# =========================================================
-
-@players_bp.route(
-    "/<int:player_id>/login",
-    methods=["POST"]
-)
-@require_admin
-def create_player_login(player_id):
-
-    player = Player.query.get_or_404(
-        player_id
-    )
-
-    # =====================================================
-    # GENERATE STANDARD CREDENTIALS
-    # =====================================================
-
-    username, password = get_player_login_credentials(
-        player
-    )
-
-    # =====================================================
-    # CREATE OR RESET LOGIN
-    # =====================================================
-
-    try:
-        user, username, password = create_or_reset_player_login(
-            player
-        )
-
-        db.session.commit()
-
-    except ValueError as e:
-
-        db.session.rollback()
-
-        return jsonify({
-            "error": str(e)
-        }), 409
-
-    except Exception as e:
-
-        db.session.rollback()
-
-        return jsonify({
-            "error": "Could not create player login",
-            "details": str(e)
-        }), 500
-
-    # =====================================================
-    # RESPONSE
-    # =====================================================
-
-    return jsonify({
-        "message": "Player login created successfully",
-        "player": {
-            "id": player.id,
-            "player_id": player.player_id,
-            "player_name": player.player_name,
-            "has_login": True,
-        },
-        "login": {
-            "username": username,
-            "password": password,
-        },
-        "user": {
-            "id": user.id,
-            "username": user.username,
-            "role": user.role,
-            "is_active": user.is_active,
-        },
-    }), 201
 
 
 # =========================================================
@@ -1109,22 +945,7 @@ def create_player():
 
     try:
 
-        # Every newly created player receives a standard PLAYER login.
-        user, login_username, login_password = (
-            create_or_reset_player_login(player)
-        )
-
         db.session.commit()
-
-    except ValueError as e:
-
-        db.session.rollback()
-
-        return jsonify(
-            {
-                "message": str(e),
-            }
-        ), 409
 
     except Exception as e:
 
@@ -1140,13 +961,7 @@ def create_player():
         ), 500
 
     return jsonify(
-        {
-            "player": player.to_dict(),
-            "login": {
-                "username": login_username,
-                "password": login_password,
-            },
-        }
+        player.to_dict()
     ), 201
 
 
@@ -1284,22 +1099,7 @@ def quick_add_player():
 
     try:
 
-        # Every newly created player receives a standard PLAYER login.
-        user, login_username, login_password = (
-            create_or_reset_player_login(player)
-        )
-
         db.session.commit()
-
-    except ValueError as e:
-
-        db.session.rollback()
-
-        return jsonify(
-            {
-                "message": str(e),
-            }
-        ), 409
 
     except Exception as e:
 
@@ -1315,13 +1115,7 @@ def quick_add_player():
         ), 500
 
     return jsonify(
-        {
-            "player": player.to_dict(),
-            "login": {
-                "username": login_username,
-                "password": login_password,
-            },
-        }
+        player.to_dict()
     ), 201
 
 

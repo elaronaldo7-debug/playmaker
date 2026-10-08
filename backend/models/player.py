@@ -71,23 +71,6 @@ class Player(db.Model):
         index=True
     )
 
-    # ============================================================
-    # PLAYER LOGIN ACCOUNT
-    #
-    # One Player can have one login account.
-    #
-    # Existing players can remain without a login account because
-    # this field is nullable.
-    # ============================================================
-
-    user_id = db.Column(
-        db.Integer,
-        db.ForeignKey("users.id"),
-        unique=True,
-        nullable=True,
-        index=True
-    )
-
     category_id = db.Column(
         db.Integer,
         db.ForeignKey("categories.id"),
@@ -98,31 +81,19 @@ class Player(db.Model):
     # ============================================================
     # FIXED MONTHLY FEE
     #
-    # None  = Monthly fee has not been configured yet
+    # None  = Fee not configured yet
     # 0     = Player is FREE
-    # 500   = ₹500/month
     # 1000  = ₹1000/month
-    #
-    # This is the player's CURRENT monthly fee.
-    # Existing Fee records keep their old amount.
     # ============================================================
 
     monthly_fee = db.Column(
         db.Numeric(10, 2),
-        nullable=True,
-        default=None
+        nullable=True
     )
 
     # ============================================================
     # RELATIONSHIPS
     # ============================================================
-
-    # Player login account
-    user = db.relationship(
-        "User",
-        back_populates="player",
-        uselist=False
-    )
 
     category = db.relationship(
         "Category",
@@ -219,14 +190,6 @@ class Player(db.Model):
             ),
 
             # ====================================================
-            # PLAYER LOGIN INFORMATION
-            # ====================================================
-
-            "has_login": (
-                self.user is not None
-            ),
-
-            # ====================================================
             # MONTHLY FEE
             # ====================================================
 
@@ -249,13 +212,15 @@ class Player(db.Model):
 
             present = sum(
                 1
-                for attendance in self.attendance_records
+                for attendance
+                in self.attendance_records
                 if attendance.status == "PRESENT"
             )
 
             absent = sum(
                 1
-                for attendance in self.attendance_records
+                for attendance
+                in self.attendance_records
                 if attendance.status == "ABSENT"
             )
 
@@ -275,9 +240,8 @@ class Player(db.Model):
 
                 "absent": absent,
 
-                "attendance_percentage": (
-                    attendance_percentage
-                ),
+                "attendance_percentage":
+                    attendance_percentage,
             }
 
         return data
