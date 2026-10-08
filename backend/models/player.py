@@ -6,10 +6,18 @@ from extensions import db
 class Player(db.Model):
     __tablename__ = "players"
 
+    # ============================================================
+    # PRIMARY KEY
+    # ============================================================
+
     id = db.Column(
         db.Integer,
         primary_key=True
     )
+
+    # ============================================================
+    # PLAYER ID
+    # ============================================================
 
     player_id = db.Column(
         db.String(20),
@@ -17,6 +25,10 @@ class Player(db.Model):
         nullable=False,
         index=True
     )
+
+    # ============================================================
+    # BASIC INFORMATION
+    # ============================================================
 
     player_name = db.Column(
         db.String(120),
@@ -64,6 +76,10 @@ class Player(db.Model):
         nullable=True
     )
 
+    # ============================================================
+    # STATUS
+    # ============================================================
+
     status = db.Column(
         db.String(10),
         default="ACTIVE",
@@ -71,10 +87,33 @@ class Player(db.Model):
         index=True
     )
 
+    # ============================================================
+    # CATEGORY
+    # ============================================================
+
     category_id = db.Column(
         db.Integer,
         db.ForeignKey("categories.id"),
         nullable=False,
+        index=True
+    )
+
+    # ============================================================
+    # PLAYER LOGIN ACCOUNT
+    #
+    # One Player can have one User account.
+    #
+    # Player.user_id -> users.id
+    #
+    # Existing migration:
+    # 888d98b1af16_add_player_login_account_relationship.py
+    # ============================================================
+
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id"),
+        unique=True,
+        nullable=True,
         index=True
     )
 
@@ -98,6 +137,13 @@ class Player(db.Model):
     category = db.relationship(
         "Category",
         back_populates="players"
+    )
+
+    user = db.relationship(
+        "User",
+        back_populates="player",
+        foreign_keys=[user_id],
+        uselist=False
     )
 
     attendance_records = db.relationship(
