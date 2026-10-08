@@ -179,8 +179,7 @@ export default function PasswordScreen() {
       <Header
         title="Change Password"
         subtitle="Keep your account secure"
-        leftIcon="arrow-back"
-        onLeftPress={() => router.back()}
+        onBack={() => router.back()}
       />
 
       <KeyboardAvoidingView

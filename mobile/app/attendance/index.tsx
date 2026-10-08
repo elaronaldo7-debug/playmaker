@@ -3056,7 +3056,7 @@ const styles =
     },
 
     photoModalBackground: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
     },
 
     photoPreviewContainer: {

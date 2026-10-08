@@ -748,8 +748,7 @@ export default function PlayerProfileScreen() {
       <ScreenContainer>
         <Header
           title="Profile"
-          leftIcon="arrow-back"
-          onLeftPress={() =>
+          onBack={() =>
             router.back()
           }
         />
@@ -768,8 +767,7 @@ export default function PlayerProfileScreen() {
       <ScreenContainer>
         <Header
           title="Profile"
-          leftIcon="arrow-back"
-          onLeftPress={() =>
+          onBack={() =>
             router.back()
           }
         />
@@ -818,10 +816,7 @@ export default function PlayerProfileScreen() {
       <Header
         title="Profile"
         subtitle={player.player_id}
-        leftIcon="arrow-back"
-        onLeftPress={() =>
-          router.back()
-        }
+        onBack={() => router.back()}
         rightIcon={
           canEditPlayers(user)
             ? "create-outline"

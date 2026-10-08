@@ -77,7 +77,8 @@ export default function FeesScreen() {
   const feesScrollPosition = useRef(0);
 
   const isAdmin =
-    user?.role === "ADMIN" || user?.role === "admin";
+    user?.role === "ADMIN" ||
+    (typeof user?.role === "string" && user.role.toLowerCase() === "admin");
 
   const coachCategoryId = useMemo(
     () => user?.coach?.category_id ?? null,

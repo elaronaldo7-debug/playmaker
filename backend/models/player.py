@@ -71,6 +71,23 @@ class Player(db.Model):
         index=True
     )
 
+    # ============================================================
+    # PLAYER LOGIN ACCOUNT
+    #
+    # One Player can have one login account.
+    #
+    # Existing players can remain without a login account because
+    # this field is nullable.
+    # ============================================================
+
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id"),
+        unique=True,
+        nullable=True,
+        index=True
+    )
+
     category_id = db.Column(
         db.Integer,
         db.ForeignKey("categories.id"),
@@ -87,8 +104,7 @@ class Player(db.Model):
     # 1000  = ₹1000/month
     #
     # This is the player's CURRENT monthly fee.
-    # When changed, newly created monthly fee records will use
-    # the new amount. Existing Fee records keep their old amount.
+    # Existing Fee records keep their old amount.
     # ============================================================
 
     monthly_fee = db.Column(
@@ -100,6 +116,13 @@ class Player(db.Model):
     # ============================================================
     # RELATIONSHIPS
     # ============================================================
+
+    # Player login account
+    user = db.relationship(
+        "User",
+        back_populates="player",
+        uselist=False
+    )
 
     category = db.relationship(
         "Category",
@@ -193,6 +216,14 @@ class Player(db.Model):
                 self.category.name
                 if self.category
                 else None
+            ),
+
+            # ====================================================
+            # PLAYER LOGIN INFORMATION
+            # ====================================================
+
+            "has_login": (
+                self.user is not None
             ),
 
             # ====================================================

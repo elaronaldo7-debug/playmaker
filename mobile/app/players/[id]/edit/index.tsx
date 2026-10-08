@@ -622,10 +622,7 @@ export default function EditPlayerScreen() {
       <Header
         title="Edit Player"
         subtitle={player.player_id}
-        leftIcon="arrow-back"
-        onLeftPress={() =>
-          router.back()
-        }
+        onBack={() => router.back()}
       />
 
 

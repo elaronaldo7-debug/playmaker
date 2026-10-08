@@ -24,7 +24,8 @@ import api, {
 
 export type Role =
   | "ADMIN"
-  | "COACH";
+  | "COACH"
+  | "PLAYER";
 
 export interface CoachInfo {
   id: number;
@@ -33,12 +34,45 @@ export interface CoachInfo {
   category_name: string | null;
 }
 
+export interface PlayerInfo {
+  id: number;
+  player_id: string;
+  player_name: string;
+  profile_photo: string | null;
+  date_of_birth: string | null;
+  age: number | null;
+  school: string | null;
+  standard: string | null;
+  phone_1: string | null;
+  phone_2: string | null;
+  pickup_person: string | null;
+  health_condition: string | null;
+  status: string;
+  category_id: number;
+  category_name: string | null;
+  has_login: boolean;
+  monthly_fee: number | null;
+}
+
 export interface AuthUser {
   id: number;
   username: string;
   role: Role;
   is_active: boolean;
+
   coach?: CoachInfo | null;
+
+  /*
+   * PLAYER LOGIN
+   *
+   * The backend returns the linked
+   * player information for PLAYER users.
+   */
+  player?: PlayerInfo | null;
+
+  player_id?: number | null;
+  player_code?: string | null;
+  has_player_profile?: boolean;
 }
 
 interface AuthContextValue {
@@ -112,8 +146,6 @@ export function AuthProvider({
       }
 
       /*
-       * IMPORTANT:
-       *
        * Only manual logout clears
        * both token and saved user.
        */
@@ -180,14 +212,6 @@ export function AuthProvider({
           "SAVED USER FOUND"
         );
 
-        /*
-         * This is the important part.
-         *
-         * Dashboard can open immediately
-         * even if Render/API is temporarily
-         * slow or unavailable.
-         */
-
         setUser(
           savedUser
         );
@@ -248,13 +272,11 @@ export function AuthProvider({
         );
 
         /*
-         * IMPORTANT:
-         *
          * NEVER remove saved user here.
          *
          * NEVER remove token here.
          *
-         * The cached session remains active.
+         * Cached session remains active.
          */
 
         if (savedUser) {
@@ -270,11 +292,6 @@ export function AuthProvider({
             "NO SAVED USER AVAILABLE"
           );
 
-          /*
-           * Only if there is a token but
-           * somehow no cached user, we cannot
-           * safely construct a user object.
-           */
           setUser(null);
         }
       } finally {
@@ -328,11 +345,6 @@ export function AuthProvider({
     );
 
     refreshUser();
-
-    /*
-     * Cleanup handler when provider
-     * is unmounted.
-     */
 
     return () => {
       setUnauthorizedHandler(
@@ -423,6 +435,33 @@ export function AuthProvider({
           }
 
           // ------------------------------------------------
+          // ROLE VALIDATION
+          // ------------------------------------------------
+
+          if (
+            loggedInUser.role !== "ADMIN" &&
+            loggedInUser.role !== "COACH" &&
+            loggedInUser.role !== "PLAYER"
+          ) {
+            throw new Error(
+              "Unsupported user role."
+            );
+          }
+
+          // ------------------------------------------------
+          // PLAYER VALIDATION
+          // ------------------------------------------------
+
+          if (
+            loggedInUser.role === "PLAYER" &&
+            !loggedInUser.has_player_profile
+          ) {
+            throw new Error(
+              "Player account is not linked to a player profile."
+            );
+          }
+
+          // ------------------------------------------------
           // SAVE TOKEN
           // ------------------------------------------------
 
@@ -460,12 +499,43 @@ export function AuthProvider({
           );
 
           // ------------------------------------------------
-          // DASHBOARD
+          // ROLE BASED NAVIGATION
           // ------------------------------------------------
 
-          router.replace(
-            "/dashboard"
-          );
+          if (
+            loggedInUser.role === "PLAYER"
+          ) {
+            /*
+             * PLAYER:
+             *
+             * Never open the dashboard.
+             *
+             * PLAYER gets only the
+             * own profile screen.
+             */
+
+            console.log(
+              "PLAYER LOGIN → /player"
+            );
+
+            router.replace(
+              "/player"
+            );
+          } else {
+            /*
+             * ADMIN / COACH:
+             *
+             * Existing dashboard flow.
+             */
+
+            console.log(
+              "ADMIN/COACH LOGIN → /dashboard"
+            );
+
+            router.replace(
+              "/dashboard"
+            );
+          }
 
           console.log(
             "LOGIN COMPLETE"
