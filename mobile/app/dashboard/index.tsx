@@ -82,21 +82,28 @@ interface BirthdayInfo {
   category: string | null;
   turning: number | null;
   isToday: boolean;
+  isTomorrow: boolean;
 }
 
 /*
- * Reads a birthday reminder defensively so it works with
- * the backend shape:
- *   { player_name, category: { name }, age,
- *     reminder_type: "birthday_today" | "birthday_tomorrow" }
- * and also with older flat shapes (category_name, type).
+ * Supports reminder types such as:
+ * birthday_today
+ * birthday_tomorrow
+ * today
+ * tomorrow
+ *
+ * Also supports older response formats.
  */
 function getBirthdayInfo(b: any): BirthdayInfo {
   const rawType = String(
     b?.reminder_type || b?.type || ""
   ).toLowerCase();
 
-  const isToday = rawType.includes("today");
+  const isToday =
+    rawType.includes("today");
+
+  const isTomorrow =
+    rawType.includes("tomorrow");
 
   const name = String(
     b?.player_name || b?.name || "Player"
@@ -110,9 +117,9 @@ function getBirthdayInfo(b: any): BirthdayInfo {
       : null) ||
     null;
 
-  // Backend age is the CURRENT age.
-  // Today    -> already the new age.
-  // Tomorrow -> will turn age + 1.
+  // Backend age is the current age.
+  // Today: birthday age is already reached.
+  // Tomorrow: birthday age will be current age + 1.
   const age =
     typeof b?.age === "number"
       ? b.age
@@ -123,13 +130,16 @@ function getBirthdayInfo(b: any): BirthdayInfo {
       ? null
       : isToday
       ? age
-      : age + 1;
+      : isTomorrow
+      ? age + 1
+      : null;
 
   return {
     name,
     category,
     turning,
     isToday,
+    isTomorrow,
   };
 }
 
@@ -297,7 +307,6 @@ export default function DashboardScreen() {
         <View style={styles.header}>
           <View style={styles.headerLeft}>
 
-            {/* LOGO - ONLY CHANGE */}
             <View style={styles.adminAvatar}>
               <Image
                 source={require("@/assets/images/playmaker-logo.png")}
@@ -363,7 +372,7 @@ export default function DashboardScreen() {
         )}
 
         {/* =========================================
-            BIRTHDAY BANNER (TOP)
+            BIRTHDAY BANNER
         ========================================= */}
 
         <BirthdayBanner
@@ -389,11 +398,7 @@ export default function DashboardScreen() {
         {isAdmin ? (
           <>
 
-            {/* 2 x 2 GRID */}
-
             <View style={styles.grid}>
-
-              {/* TOTAL PLAYERS */}
 
               <DashboardCard
                 icon="people"
@@ -408,8 +413,6 @@ export default function DashboardScreen() {
                 }
               />
 
-              {/* ACTIVE PLAYERS */}
-
               <DashboardCard
                 icon="checkmark-circle"
                 iconColor="#20D47A"
@@ -422,8 +425,6 @@ export default function DashboardScreen() {
                   router.push("/players")
                 }
               />
-
-              {/* PRESENT */}
 
               <DashboardCard
                 icon="checkmark-done"
@@ -439,8 +440,6 @@ export default function DashboardScreen() {
                   )
                 }
               />
-
-              {/* ABSENT */}
 
               <DashboardCard
                 icon="close-circle"
@@ -731,6 +730,7 @@ function BirthdayBanner({
   }
 
   const visible = birthdays.slice(0, 3);
+
   const extra =
     birthdays.length - visible.length;
 
@@ -741,7 +741,6 @@ function BirthdayBanner({
         const info =
           getBirthdayInfo(birthday);
 
-        // Today = warm pink/gold, Tomorrow = cool blue.
         const accent = info.isToday
           ? "#FF6B81"
           : "#2D8CFF";
@@ -817,7 +816,9 @@ function BirthdayBanner({
               >
                 {info.isToday
                   ? "HAPPY BIRTHDAY!"
-                  : "BIRTHDAY TOMORROW"}
+                  : info.isTomorrow
+                  ? "BIRTHDAY TOMORROW"
+                  : "BIRTHDAY REMINDER"}
               </Text>
             </View>
 
@@ -834,7 +835,11 @@ function BirthdayBanner({
                 ]}
               >
                 <Text style={styles.bdayEmoji}>
-                  {info.isToday ? "🎉" : "🎂"}
+                  {info.isToday
+                    ? "🎉"
+                    : info.isTomorrow
+                    ? "🎂"
+                    : "🎈"}
                 </Text>
               </View>
 
@@ -886,7 +891,9 @@ function BirthdayBanner({
                       >
                         {info.isToday
                           ? `${info.turning} years`
-                          : `Turns ${info.turning}`}
+                          : info.isTomorrow
+                          ? `Turns ${info.turning}`
+                          : `${info.turning} years`}
                       </Text>
                     </View>
                   ) : null}
@@ -1208,8 +1215,6 @@ const styles = StyleSheet.create({
     borderColor: "#45638F",
   },
 
-  /* LOGO STYLE - ONLY ADDITION */
-
   adminLogo: {
     width: 44,
     height: 44,
@@ -1264,7 +1269,7 @@ const styles = StyleSheet.create({
   },
 
   /* ===============================================
-     BIRTHDAY BANNER (TOP)
+     BIRTHDAY BANNER
   =============================================== */
 
   bdayWrap: {
