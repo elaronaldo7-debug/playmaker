@@ -74,6 +74,66 @@ const CATEGORY_COLORS = [
 ];
 
 // ==================================================
+// BIRTHDAY HELPERS
+// ==================================================
+
+interface BirthdayInfo {
+  name: string;
+  category: string | null;
+  turning: number | null;
+  isToday: boolean;
+}
+
+/*
+ * Reads a birthday reminder defensively so it works with
+ * the backend shape:
+ *   { player_name, category: { name }, age,
+ *     reminder_type: "birthday_today" | "birthday_tomorrow" }
+ * and also with older flat shapes (category_name, type).
+ */
+function getBirthdayInfo(b: any): BirthdayInfo {
+  const rawType = String(
+    b?.reminder_type || b?.type || ""
+  ).toLowerCase();
+
+  const isToday = rawType.includes("today");
+
+  const name = String(
+    b?.player_name || b?.name || "Player"
+  ).toUpperCase();
+
+  const category: string | null =
+    b?.category?.name ||
+    b?.category_name ||
+    (typeof b?.category === "string"
+      ? b.category
+      : null) ||
+    null;
+
+  // Backend age is the CURRENT age.
+  // Today    -> already the new age.
+  // Tomorrow -> will turn age + 1.
+  const age =
+    typeof b?.age === "number"
+      ? b.age
+      : null;
+
+  const turning =
+    age === null
+      ? null
+      : isToday
+      ? age
+      : age + 1;
+
+  return {
+    name,
+    category,
+    turning,
+    isToday,
+  };
+}
+
+// ==================================================
 // DASHBOARD SCREEN
 // ==================================================
 
@@ -301,6 +361,16 @@ export default function DashboardScreen() {
 
           </View>
         )}
+
+        {/* =========================================
+            BIRTHDAY BANNER (TOP)
+        ========================================= */}
+
+        <BirthdayBanner
+          birthdays={
+            data.birthday_reminders
+          }
+        />
 
         {/* =========================================
             OVERVIEW
@@ -637,100 +707,6 @@ export default function DashboardScreen() {
           )}
 
         {/* =========================================
-            BIRTHDAY REMINDERS
-        ========================================= */}
-
-        {data.birthday_reminders &&
-          data.birthday_reminders
-            .length > 0 && (
-
-            <View
-              style={
-                styles.birthdaySection
-              }
-            >
-
-              <View
-                style={
-                  styles.sectionHeader
-                }
-              >
-
-                <Text
-                  style={
-                    styles.sectionTitle
-                  }
-                >
-                  Birthday Reminders
-                </Text>
-
-              </View>
-
-              {data.birthday_reminders
-                .slice(0, 3)
-                .map(
-                  (
-                    birthday: any,
-                    index: number
-                  ) => (
-
-                    <View
-                      key={index}
-                      style={
-                        styles.birthdayCard
-                      }
-                    >
-
-                      <View
-                        style={
-                          styles.birthdayIcon
-                        }
-                      >
-
-                        <Ionicons
-                          name="gift-outline"
-                          size={21}
-                          color="#FF6B81"
-                        />
-
-                      </View>
-
-                      <View
-                        style={
-                          styles.birthdayInfo
-                        }
-                      >
-
-                        <Text
-                          style={
-                            styles.birthdayName
-                          }
-                        >
-                          {birthday.player_name ||
-                            birthday.name ||
-                            "Player"}
-                        </Text>
-
-                        <Text
-                          style={
-                            styles.birthdayText
-                          }
-                        >
-                          Birthday reminder
-                        </Text>
-
-                      </View>
-
-                    </View>
-
-                  )
-                )}
-
-            </View>
-
-          )}
-
-        {/* =========================================
             BOTTOM SPACE
         ========================================= */}
 
@@ -738,6 +714,201 @@ export default function DashboardScreen() {
 
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+/* ==================================================
+   BIRTHDAY BANNER
+================================================== */
+
+function BirthdayBanner({
+  birthdays,
+}: {
+  birthdays: any[];
+}) {
+  if (!birthdays || birthdays.length === 0) {
+    return null;
+  }
+
+  const visible = birthdays.slice(0, 3);
+  const extra =
+    birthdays.length - visible.length;
+
+  return (
+    <View style={styles.bdayWrap}>
+
+      {visible.map((birthday, index) => {
+        const info =
+          getBirthdayInfo(birthday);
+
+        // Today = warm pink/gold, Tomorrow = cool blue.
+        const accent = info.isToday
+          ? "#FF6B81"
+          : "#2D8CFF";
+
+        const background = info.isToday
+          ? "#2A1636"
+          : "#10244A";
+
+        return (
+          <View
+            key={`bday-${
+              birthday?.player_id ?? index
+            }-${index}`}
+            style={[
+              styles.bdayBanner,
+              {
+                backgroundColor: background,
+                borderColor: accent,
+              },
+            ]}
+          >
+
+            {/* DECORATIVE BLOBS */}
+
+            <View
+              style={[
+                styles.bdayBlobLarge,
+                {
+                  backgroundColor: accent,
+                },
+              ]}
+            />
+
+            <View
+              style={[
+                styles.bdayBlobSmall,
+                {
+                  backgroundColor: accent,
+                },
+              ]}
+            />
+
+            <Text
+              style={styles.bdayConfettiLeft}
+            >
+              🎈
+            </Text>
+
+            <Text
+              style={styles.bdayConfettiRight}
+            >
+              ✨
+            </Text>
+
+            {/* LABEL PILL */}
+
+            <View
+              style={[
+                styles.bdayPill,
+                {
+                  backgroundColor: `${accent}30`,
+                  borderColor: accent,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.bdayPillText,
+                  {
+                    color: accent,
+                  },
+                ]}
+              >
+                {info.isToday
+                  ? "HAPPY BIRTHDAY!"
+                  : "BIRTHDAY TOMORROW"}
+              </Text>
+            </View>
+
+            {/* MAIN ROW */}
+
+            <View style={styles.bdayMainRow}>
+
+              <View
+                style={[
+                  styles.bdayEmojiCircle,
+                  {
+                    borderColor: accent,
+                  },
+                ]}
+              >
+                <Text style={styles.bdayEmoji}>
+                  {info.isToday ? "🎉" : "🎂"}
+                </Text>
+              </View>
+
+              <View style={styles.bdayTextBlock}>
+
+                <Text
+                  style={styles.bdayName}
+                  numberOfLines={2}
+                >
+                  {info.name}
+                </Text>
+
+                <View style={styles.bdayChipRow}>
+
+                  {info.category ? (
+                    <View
+                      style={styles.bdayChip}
+                    >
+                      <Ionicons
+                        name="shirt-outline"
+                        size={10}
+                        color="#FFFFFF"
+                      />
+
+                      <Text
+                        style={
+                          styles.bdayChipText
+                        }
+                      >
+                        {info.category}
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  {info.turning !== null ? (
+                    <View
+                      style={styles.bdayChip}
+                    >
+                      <Ionicons
+                        name="gift-outline"
+                        size={10}
+                        color="#FFFFFF"
+                      />
+
+                      <Text
+                        style={
+                          styles.bdayChipText
+                        }
+                      >
+                        {info.isToday
+                          ? `${info.turning} years`
+                          : `Turns ${info.turning}`}
+                      </Text>
+                    </View>
+                  ) : null}
+
+                </View>
+
+              </View>
+
+            </View>
+
+          </View>
+        );
+      })}
+
+      {extra > 0 && (
+        <Text style={styles.bdayMore}>
+          +{extra} more birthday
+          {extra > 1 ? "s" : ""}
+        </Text>
+      )}
+
+    </View>
   );
 }
 
@@ -1093,6 +1264,146 @@ const styles = StyleSheet.create({
   },
 
   /* ===============================================
+     BIRTHDAY BANNER (TOP)
+  =============================================== */
+
+  bdayWrap: {
+    marginBottom: 12,
+  },
+
+  bdayBanner: {
+    borderRadius: 14,
+    borderWidth: 1.5,
+    paddingHorizontal: 11,
+    paddingTop: 8,
+    paddingBottom: 9,
+    marginBottom: 6,
+    overflow: "hidden",
+
+    elevation: 3,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+
+  bdayBlobLarge: {
+    position: "absolute",
+    top: -34,
+    right: -24,
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    opacity: 0.16,
+  },
+
+  bdayBlobSmall: {
+    position: "absolute",
+    bottom: -24,
+    left: -16,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    opacity: 0.12,
+  },
+
+  bdayConfettiLeft: {
+    position: "absolute",
+    top: 6,
+    right: 34,
+    fontSize: 13,
+    opacity: 0.9,
+  },
+
+  bdayConfettiRight: {
+    position: "absolute",
+    top: 22,
+    right: 10,
+    fontSize: 11,
+    opacity: 0.9,
+  },
+
+  bdayPill: {
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 1,
+    marginBottom: 6,
+  },
+
+  bdayPillText: {
+    fontSize: 8.5,
+    fontWeight: "800",
+    letterSpacing: 0.7,
+  },
+
+  bdayMainRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  bdayEmojiCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  bdayEmoji: {
+    fontSize: 20,
+  },
+
+  bdayTextBlock: {
+    flex: 1,
+    marginLeft: 10,
+  },
+
+  bdayName: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "900",
+    letterSpacing: 0.2,
+  },
+
+  bdayChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginTop: 3,
+    gap: 5,
+  },
+
+  bdayChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "rgba(255,255,255,0.14)",
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 1,
+  },
+
+  bdayChipText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+
+  bdayMore: {
+    color: "#8EA1C2",
+    fontSize: 10.5,
+    fontWeight: "600",
+    textAlign: "center",
+    marginTop: -2,
+  },
+
+  /* ===============================================
      OVERVIEW GRID
   =============================================== */
 
@@ -1306,58 +1617,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
 
     marginRight: 8,
-  },
-
-  /* ===============================================
-     BIRTHDAY
-  =============================================== */
-
-  birthdaySection: {
-    marginTop: 8,
-  },
-
-  birthdayCard: {
-    flexDirection: "row",
-    alignItems: "center",
-
-    backgroundColor: "#111F34",
-
-    borderRadius: 15,
-
-    borderWidth: 1,
-    borderColor: "#263955",
-
-    padding: 13,
-
-    marginBottom: 8,
-  },
-
-  birthdayIcon: {
-    width: 42,
-    height: 42,
-
-    borderRadius: 21,
-
-    backgroundColor: "#3A1E2B",
-
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  birthdayInfo: {
-    marginLeft: 12,
-  },
-
-  birthdayName: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-
-  birthdayText: {
-    color: "#8392AA",
-    fontSize: 11,
-    marginTop: 3,
   },
 
   /* ===============================================
